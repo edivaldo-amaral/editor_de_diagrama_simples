@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editor de diagramas simples</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style id="dynamic-print-style"></style>
+
+  <style>
+    body {
+      display: flex; flex-direction: column; height: 100vh; width: 100vw;
+      margin: 0; padding: 0; overflow: hidden; background-color: #f9fafb;
+      font-family: sans-serif; -webkit-user-select: none; user-select: none;
+    }
+    #canvas {
+      flex-grow: 1; position: relative; overflow-y: scroll; overflow-x: auto;
+      background-color: #f9fafb; cursor: default; width: 100%; scroll-padding-top: 70px;
+    }
+    #panZoomContainer {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      transform-origin: 0 0; transition: transform 0.15s ease-out;
+    }
+    #page-guide-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+    #container { position: relative; width: 100%; height: 100%; z-index: 10; }
+    #svg-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+    #svg-container g.connection-group { pointer-events: all; }
+
+    .node {
+      padding: 0.5rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      position: absolute; min-width: 100px; min-height: 40px; cursor: grab;
+      display: flex; align-items: center; justify-content: center;
+      overflow-wrap: break-word; word-wrap: break-word; hyphens: auto;
+      transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, border-radius 0.3s, box-shadow 0.2s, transform 0.2s;
+    }
+    .node .content { outline: none; width: 100%; min-height: 1.2em; pointer-events: none; text-align: center; transition: font-size: 0.2s; }
+    .node .content ul { text-align: left; margin-left: 1.5em; padding-left:0; list-style-position: outside; }
+    .node .content li { margin-bottom: 0.2em; }
+    .node .content b, .node .content strong { font-weight: bold; }
+    .node .content i, .node .content em { font-style: italic; }
+    .node.editing .content { pointer-events: auto; user-select: text; }
+    .node.dragging { cursor: grabbing; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); z-index: 1000; }
+    .node.editing, .node.style-target { cursor: default; border-color: #3b82f6; }
+    .node.selected, .group-container.selected { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.6); }
+    .node:not(.in-group):hover .connector, .node:not(.in-group):hover .resize-handle { opacity: 1; transition: opacity 0.2s; }
+    
+    .connector, .resize-handle { opacity: 0; z-index: 5; pointer-events: all; transition: opacity 0.2s ease; }
+    .node.in-group .connector, .node.in-group .resize-handle { opacity: 0 !important; pointer-events: none !important; }
+
+    .connector { width: 12px; height: 12px; background: #3b82f6; border: 2px solid white; border-radius: 9999px; position: absolute; cursor: crosshair; box-shadow: 0 0 0 1px rgba(0,0,0,0.1); }
+    .connector.top { top: -7px; left: 50%; transform: translateX(-50%); }
+    .connector.bottom { bottom: -7px; left: 50%; transform: translateX(-50%); }
+    .connector.left { left: -7px; top: 50%; transform: translateY(-50%); }
+    .connector.right { right: -7px; top: 50%; transform: translateY(-50%); }
+    .resize-handle { width: 14px; height: 14px; background: #6b7280; border: 2px solid white; border-radius: 3px; position: absolute; right: -8px; bottom: -8px; cursor: se-resize; }
+    
+    #toolbar { position: absolute; display: flex; align-items: center; flex-wrap: wrap; background: white; border: 1px solid #ddd; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); visibility: hidden; z-index: 1010; padding: 0.5rem; }
+    #toolbar button, #toolbar select, #toolbar input, #toolbar span, #toolbar div { margin: 0.2rem; background: none; border: 1px solid transparent; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: 0.25rem; transition: background-color 0.15s, border-color 0.15s; vertical-align: middle; }
+    #toolbar div#palette { padding: 0.3rem 0; }
+    #toolbar button:hover, #toolbar select:hover { background-color: #f3f4f6; border-color: #e5e7eb; }
+    #toolbar select { padding: 0.3rem; border: 1px solid #ccc; cursor: pointer;}
+    #toolbar input[type="color"] { width: 25px; height: 25px; padding: 0; border-radius: 5px; border: 1px solid #ccc; }
+    #toolbar input[type="number"] { width: 50px; padding: 0.3rem; border: 1px solid #ccc; cursor: text; }
+    #toolbar .separator { border-left: 1px solid #ccc; margin: 0 0.5rem; height: 20px; display: inline-block;}
+    #palette { display: flex; margin-left: 0.5rem; align-items: center; }
+    .color-swatch { width: 20px; height: 20px; border: 2px solid #ccc; margin-right: 0.3rem; cursor: pointer; border-radius: 9999px; transition: transform 0.1s; }
+    .color-swatch:hover { transform: scale(1.1); }
+    #customColor { width: 22px; height: 22px; border: none; padding: 0; cursor: pointer; background: none; }
+    .node-ellipse { border-radius: 50% !important; }
+    
+    .group-container {
+        position: absolute;
+        border: 2px dashed #a5b4fc;
+        border-radius: 12px;
+        background-color: rgba(165, 180, 252, 0.05);
+        pointer-events: all; 
+        z-index: 9; 
+        transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, box-shadow 0.2s, left 0.05s linear, top 0.05s linear;
+    }
+    .group-container.style-target {
+        border-color: #3b82f6;
+    }
+    .group-container.dragging {
+      cursor: grabbing;
+      transition: none;
+    }
+
+    #marquee { position: absolute; border: 1px dashed #09f; background: rgba(0, 153, 255, 0.1); visibility: hidden; pointer-events: none; z-index: 2000; }
+    #a4PageGuideRect { fill: white; stroke: #cccccc; vector-effect: non-scaling-stroke; stroke-width: 1; pointer-events: none; }
+    .menu-item-button { display: block; width: 100%; text-align: left; padding: 0.5rem 1rem; font-size: 0.875rem; color: #374151; border-radius: 0.375rem; background-color: transparent; border: none; cursor: pointer; }
+    .menu-item-button:hover { background-color: #e1e4eb; color: #1f2937; }
+    .menu-item-button:disabled { color: #9ca3af; cursor: not-allowed; background-color: transparent; }
+    .menu-icon-button { padding: 0.5rem; margin: 0.125rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background-color: #f9fafb; transition: background-color 0.15s; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+    .menu-icon-button:hover { background-color: #e5e7eb; }
+    .menu-icon-button svg { width: 1.25em; height: 1.25em; }
+
+    @media print {
+      body > #main-content-area > div:first-child, body > #main-content-area > #toolbar, body > #toolbar, body > #simpleModal, body #page-guide-container { display: none !important; }
+      body > #main-content-area { margin-left: 0 !important; width: 100% !important; height: 100% !important; }
+      #canvas { flex-grow: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; position: absolute !important; top: 0 !important; left: 0 !important; background-color: #ffffff !important; margin-left: 0 !important; scroll-padding-top: 0 !important; }
+      #panZoomContainer { transform-origin: 0 0 !important; }
+      svg#lines, #svg-container { width: 100% !important; height: 100% !important; overflow: hidden !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="main-content-area" style="width: 100%; height: 100vh; display: flex; flex-direction: column;">
+    <div class="flex justify-center w-full"> 
+      <div id="top-buttons-container" class="flex items-center flex-wrap p-2.5 bg-gray-100 shadow-md space-x-2">
+        <button id="addNode" class="px-4 py-2 bg-blue-500 text-white rounded-md shadow hover:bg-blue-800 transition text-sm font-semibold" title="Novo Item">Novo Item</button>
+        <button id="undoBtn" title="Desfazer (Ctrl+Z)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-gray-300 transition" disabled>↩️</button>
+        <button id="redoBtn" title="Refazer (Ctrl+Y)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-gray-300 transition" disabled>↪️</button>
+        <button id="deleteBtn" title="Deletar Selecionados (Delete)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-red-600 transition text-sm">🗑️</button>
+        
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Arquivo<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[160px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
+                <div class="py-1">
+                    <button id="saveDiagram" class="menu-item-button" title="Salvar Diagrama">💾 Salvar</button>
+                    <label for="loadDiagramInput" class="menu-item-button" title="Carregar Diagrama">📂 Carregar</label>
+                    <input type="file" id="loadDiagramInput" accept=".json,application/json" style="display: none;">
+                    <button id="printToPDFBtn" title="Imprimir para PDF" class="menu-item-button">🖨️ Imprimir PDF</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Organizar<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[200px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015] p-2">
+                <div class="py-1">
+                    <button id="groupBtn" title="Agrupar Itens (Ctrl+G)" class="menu-item-button">📦 Agrupar</button>
+                    <button id="ungroupBtn" title="Desagrupar Itens (Ctrl+Shift+G)" class="menu-item-button">🖐️ Desagrupar</button>
+                </div>
+                <hr class="my-2 border-gray-200">
+                <div class="grid grid-cols-3 gap-1 mb-1">
+                    <button data-align="left" title="Alinhar à Esquerda" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 3h2v14H3V3zm4 2h10V3H7v2zm0 4h7V7H7v2zm0 4h10v-2H7v2zm0 4h7v-2H7v2z"/></svg></button>
+                    <button data-align="center-h" title="Centralizar Horizontal" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9 3h2v14H9V3zM3 5h14V3H3v2zm2 4h10V7H5v2zm-2 4h14v-2H3v2zm2 4h10v-2H5v2z"/></svg></button>
+                    <button data-align="right" title="Alinhar à Direita" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M15 3h2v14h-2V3zM3 5h10V3H3v2zm3 4h7V7H6v2zm-3 4h10v-2H3v2zm3 4h7v-2H6v2z"/></svg></button>
+                </div>
+                <div class="grid grid-cols-3 gap-1">
+                    <button data-align="top" title="Alinhar Acima" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M3 3h2v14H3V3zm4 2h10V3H7v2zm0 4h7V7H7v2zm0 4h10v-2H7v2zm0 4h7v-2H7v2z"/></svg></button>
+                    <button data-align="center-v" title="Centralizar Vertical" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M9 3h2v14H9V3zM3 5h14V3H3v2zm2 4h10V7H5v2zm-2 4h14v-2H3v2zm2 4h10v-2H5v2z"/></svg></button>
+                    <button data-align="bottom" title="Alinhar Abaixo" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M15 3h2v14h-2V3zM3 5h10V3H3v2zm3 4h7V7H6v2zm-3 4h10v-2H3v2zm3 4h7v-2H6v2z"/></svg></button>
+                </div>
+                <hr class="my-2 border-gray-200">
+                <div class="grid grid-cols-2 gap-1">
+                    <button data-distribute="horizontal" title="Distribuir Horizontalmente" class="menu-icon-button text-base">↔️</button>
+                    <button data-distribute="vertical" title="Distribuir Verticalmente" class="menu-icon-button text-base">↕️</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Editar Globais<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[280px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015] p-3 space-y-3">
+                <h4 class="text-xs font-bold text-gray-500 uppercase">Estilos de Item</h4>
+                <div class="flex items-center justify-between"><label for="globalNodeBgColor" title="Cor de Fundo Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Fundo do Item:</label><input type="color" id="globalNodeBgColor" value="#FFFFFF" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
+                <div class="flex items-center justify-between"><label for="globalNodeBorderColor" title="Cor da Borda Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Borda do Item (Cor):</label><input type="color" id="globalNodeBorderColor" value="#E5E7EB" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
+                <div class="flex items-center justify-between"><label for="globalNodeBorderWidth" title="Largura da Borda Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Borda do Item (Larg.):</label><input type="number" id="globalNodeBorderWidth" value="1" min="0" max="15" step="1" class="w-20 text-sm p-1 border border-gray-300 rounded-md text-center"></div>
+                <div class="flex items-center justify-between"><label for="globalNodeShape" title="Forma Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Forma do Item:</label><select id="globalNodeShape" class="text-sm p-1.5 border border-gray-300 rounded-md bg-white w-auto"><option value="rectangle">Retângulo</option><option value="ellipse">Elipse</option></select></div>
+                <button id="applyGlobalsToSelected" class="w-full px-3 py-1.5 bg-indigo-500 text-white rounded-md shadow-sm hover:bg-indigo-600 transition text-xs font-semibold">Aplicar aos Itens</button>
+                <hr class="my-2">
+                <h4 class="text-xs font-bold text-gray-500 uppercase mt-2">Estilos de Linha</h4>
+                <div class="flex items-center justify-between"><label for="lineColor" title="Cor da Linha Global" class="text-sm text-gray-700 whitespace-nowrap mr-2">Cor da Linha:</label><input type="color" id="lineColor" value="#60a5fa" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
+                <div class="flex items-center justify-between"><label for="lineWidth" title="Espessura da Linha Global" class="text-sm text-gray-700 whitespace-nowrap mr-2">Espessura Linha:</label><input type="number" id="lineWidth" value="2.5" min="0.5" max="20" step="0.5" class="w-20 text-sm p-1 border border-gray-300 rounded-md text-center"></div>
+                <hr class="my-2">
+                <h4 class="text-xs font-bold text-gray-500 uppercase mt-2">Estilos de Grupo</h4>
+                <div class="flex items-center justify-between"><label for="globalGroupBgColor" title="Cor de Fundo do Grupo" class="text-sm text-gray-700 whitespace-nowrap mr-2">Fundo do Grupo:</label><input type="color" id="globalGroupBgColor" value="#a5b4fc" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
+                <div class="flex items-center justify-between"><label for="globalGroupBgOpacity" title="Opacidade do Fundo" class="text-sm text-gray-700 whitespace-nowrap mr-2">Opacidade Fundo:</label><input type="range" id="globalGroupBgOpacity" min="0" max="1" step="0.05" value="0.05" class="w-24"></div>
+                <div class="flex items-center justify-between"><label for="globalGroupBorderColor" title="Cor da Borda do Grupo" class="text-sm text-gray-700 whitespace-nowrap mr-2">Borda do Grupo:</label><input type="color" id="globalGroupBorderColor" value="#a5b4fc" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
+                <div class="flex items-center justify-between"><label for="globalGroupBorderOpacity" title="Opacidade da Borda" class="text-sm text-gray-700 whitespace-nowrap mr-2">Opacidade Borda:</label><input type="range" id="globalGroupBorderOpacity" min="0" max="1" step="0.05" value="1" class="w-24"></div>
+                <button id="applyGlobalsToGroups" class="w-full mt-2 px-3 py-1.5 bg-purple-500 text-white rounded-md shadow-sm hover:bg-purple-600 transition text-xs font-semibold">Aplicar aos Grupos</button>
+            </div>
+        </div>
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Página<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div id="page-menu" class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[280px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015] p-3 space-y-3">
+                <div class="flex items-center justify-between"><label for="pageSizeSelect" class="text-sm text-gray-700 whitespace-nowrap mr-2">Tamanho:</label><select id="pageSizeSelect" class="text-sm p-1.5 border border-gray-300 rounded-md bg-white w-full"><option value="A4">A4 (21 x 29.7 cm)</option><option value="A5">A5 (14.8 x 21 cm)</option><option value="A3">A3 (29.7 x 42 cm)</option><option value="Letter">Carta (21.6 x 27.9 cm)</option><option value="custom">Personalizado</option></select></div>
+                <div class="flex items-center justify-between"><label for="pageOrientationSelect" class="text-sm text-gray-700 whitespace-nowrap mr-2">Orientação:</label><select id="pageOrientationSelect" class="text-sm p-1.5 border border-gray-300 rounded-md bg-white w-full"><option value="portrait">Retrato</option><option value="landscape">Paisagem</option></select></div>
+                <div id="custom-size-inputs" class="hidden space-y-3 pt-2"><hr><div class="flex items-center justify-between"><label for="pageCustomWidth" class="text-sm text-gray-700 whitespace-nowrap mr-2">Largura (px):</label><input type="number" id="pageCustomWidth" value="794" class="w-24 text-sm p-1 border border-gray-300 rounded-md text-center"></div><div class="flex items-center justify-between"><label for="pageCustomHeight" class="text-sm text-gray-700 whitespace-nowrap mr-2">Altura (px):</label><input type="number" id="pageCustomHeight" value="1123" class="w-24 text-sm p-1 border border-gray-300 rounded-md text-center"></div></div><hr>
+                <button id="applyPageSettings" class="w-full mt-2 px-3 py-1.5 bg-indigo-500 text-white rounded-md shadow-sm hover:bg-indigo-600 transition text-sm font-semibold">Aplicar</button>
+            </div>
+        </div>
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Zoom<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[200px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
+                <div class="py-1"><button id="zoomInBtnManual" title="Aumentar Zoom (+)" class="menu-item-button font-bold">＋ Aumentar Zoom</button><button id="zoomOutBtnManual" title="Diminuir Zoom (-)" class="menu-item-button font-bold">－ Diminuir Zoom</button><button id="zoomResetBtnManual" title="Restaurar Zoom (100%)" class="menu-item-button">💯 Restaurar Zoom</button><hr class="my-1 border-gray-200"><button id="fitToContentBtn" title="Ajustar ao Conteúdo" class="menu-item-button">🎯 Ajustar ao Conteúdo</button><button id="fitToPageBtn" title="Ajustar à Página" class="menu-item-button">📄 Ajustar à Página</button></div>
+            </div>
+        </div>
+        <span id="zoomLevelDisplay" class="text-sm text-gray-700 self-center bg-gray-100 px-2 py-1 rounded-md shadow-sm">Zoom: 100%</span>
+      </div>
+    </div>
+    <div id="canvas">
+      <div id="panZoomContainer">
+        <div id="page-guide-container">
+            <svg width="100%" height="100%" style="overflow: visible !important;">
+                <rect id="a4PageGuideRect" x="0" y="0" width="794" height="1123" />
+            </svg>
+        </div>
+
+        <div id="container"></div>
+
+        <div id="svg-container">
+          <svg id="lines" width="100%" height="100%" style="overflow: visible !important;"></svg>
+        </div>
+        
+      </div>
+    </div>
+  </div>
+
+  <div id="toolbar">
+      <button data-cmd="bold" title="Negrito"><b>B</b></button>
+      <button data-cmd="italic" title="Itálico"><i>I</i></button>
+      <button data-cmd="underline" title="Sublinhado"><u>U</u></button>
+      <button data-cmd="superscript" title="Sobrescrito">X<sup>2</sup></button>
+      <button data-cmd="subscript" title="Subscrito">X<sub>2</sub></button>
+      <button data-cmd="insertUnorderedList" title="Lista não Ordenada" style="padding: 0.3rem 0.4rem;">●</button>
+      <select data-cmd="fontSize" title="Tamanho da Fonte"><option value="3">Normal</option><option value="5">Grande</option><option value="2">Pequeno</option><option value="7">Enorme</option></select>
+      <span class="separator"></span>
+      <button data-textalign="left" title="Alinhar Texto à Esquerda"> L </button>
+      <button data-textalign="center" title="Centralizar Texto"> C </button>
+      <button data-textalign="right" title="Alinhar Texto à Direita"> R </button>
+      <span class="separator"></span>
+      <div id="palette" title="Cor da Fonte"><div class="color-swatch" style="background:#000000" data-color="#000000"></div><div class="color-swatch" style="background:#EF4444" data-color="#EF4444"></div><div class="color-swatch" style="background:#22C55E" data-color="#22C55E"></div></div>
+      <input type="color" id="customColor" title="Cor da Fonte Customizada"/> <span class="separator"></span>
+      <span title="Cor do Fundo"><input type="color" data-style="backgroundColor" value="#FFFFFF"></span>
+      <span title="Cor da Borda"><input type="color" data-style="borderColor" value="#E5E7EB"></span>
+      <span title="Largura Borda"><input type="number" data-style="borderWidth" min="0" max="15" value="1"></span>
+      <select data-style="shape" title="Forma"> <option value="rectangle">Retângulo</option> <option value="ellipse">Elipse</option> </select>
+      <button data-style="transparent" title="Transparente">👻</button>
+  </div>
+
+  <div id="marquee"></div>
+
+  <script>
+    // --- Global Elements ---
+    const canvasEl = document.getElementById('canvas');
+    const panZoomContainer = document.getElementById('panZoomContainer');
+    const container = document.getElementById('container');
+    const svg = document.getElementById('lines');
+    const svgContainer = document.getElementById('svg-container');
+    const a4PageGuideRect = document.getElementById('a4PageGuideRect');
+    const toolbar = document.getElementById('toolbar'); 
+    const marquee = document.getElementById('marquee');
+    const customColorInput = document.getElementById('customColor'); 
+    const addNodeButton = document.getElementById('addNode');
+    const saveDiagramButton = document.getElementById('saveDiagram');
+    const loadDiagramInput = document.getElementById('loadDiagramInput');
+    const printToPDFBtn = document.getElementById('printToPDFBtn');
+    const lineColorInput = document.getElementById('lineColor');
+    const lineWidthInput = document.getElementById('lineWidth');
+    const globalNodeBgColorInput = document.getElementById('globalNodeBgColor');
+    const globalNodeBorderColorInput = document.getElementById('globalNodeBorderColor');
+    const globalNodeBorderWidthInput = document.getElementById('globalNodeBorderWidth');
+    const globalNodeShapeSelect = document.getElementById('globalNodeShape');
+    const applyGlobalsToSelectedBtn = document.getElementById('applyGlobalsToSelected');
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+    const fitToContentBtn = document.getElementById('fitToContentBtn');
+    const fitToPageBtn = document.getElementById('fitToPageBtn');
+    const zoomInBtnManual = document.getElementById('zoomInBtnManual');
+    const zoomOutBtnManual = document.getElementById('zoomOutBtnManual');
+    const zoomResetBtnManual = document.getElementById('zoomResetBtnManual');
+    const zoomLevelDisplay = document.getElementById('zoomLevelDisplay');
+    const deleteBtn = document.getElementById('deleteBtn'); 
+    const groupBtn = document.getElementById('groupBtn');
+    const ungroupBtn = document.getElementById('ungroupBtn');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const pageOrientationSelect = document.getElementById('pageOrientationSelect');
+    const customSizeInputs = document.getElementById('custom-size-inputs');
+    const pageCustomWidth = document.getElementById('pageCustomWidth');
+    const pageCustomHeight = document.getElementById('pageCustomHeight');
+    const applyPageSettings = document.getElementById('applyPageSettings');
+    const dynamicPrintStyle = document.getElementById('dynamic-print-style');
+    // New Group Style Elements
+    const globalGroupBgColorInput = document.getElementById('globalGroupBgColor');
+    const globalGroupBorderColorInput = document.getElementById('globalGroupBorderColor');
+    const globalGroupBgOpacityInput = document.getElementById('globalGroupBgOpacity');
+    const globalGroupBorderOpacityInput = document.getElementById('globalGroupBorderOpacity');
+    const applyGlobalsToGroupsBtn = document.getElementById('applyGlobalsToGroups');
+
+    // --- Constants ---
+    const A4_WIDTH_PX = 794; 
+    const A4_HEIGHT_PX = 1123;
+    const PAGE_SIZES_PX = {
+        'A4': { width: 794, height: 1123 },
+        'A5': { width: 559, height: 794 },
+        'A3': { width: 1123, height: 1587 },
+        'Letter': { width: 816, height: 1056 },
+    };
+    const PAGE_SIZES_PHYSICAL = {
+        'A4': { width: '210mm', height: '297mm' },
+        'A5': { width: '148mm', height: '210mm' },
+        'A3': { width: '297mm', height: '420mm' },
+        'Letter': { width: '8.5in', height: '11in' },
+    };
+    const A4_VIEW_PADDING = 20;
+    const MIN_ZOOM_SCALE = 0.1; 
+    const MAX_ZOOM_SCALE = 5.0; 
+    const DRAG_THRESHOLD = 5;
+    const KEY_MOVE_STEP = 10;
+    const ZOOM_BUTTON_STEP_FACTOR = 1.2;
+
+    // --- State Variables ---
+    let isA4ModeActive = true; 
+    let viewport = { scale: 1.0, panX: 0, panY: 0 };
+    let isPanning = false;
+    let lastPanPosition = { x: 0, y: 0 };
+    let globalScreenMouse = { x: 0, y: 0 };
+    let undoStack = [];
+    let redoStack = [];
+    let nodeCounter = 0;
+    let connections = [];
+    let editingNode = null;
+    let savedRange = null;
+    let selectedItems = new Set();
+    let selectedConnections = new Set();
+    let actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] };
+    let appClipboard = { type: null, items: [], anchor: { left: 0, top: 0 } };
+    let currentLineColor = '#60a5fa';
+    let currentLineStrokeWidth = 2.5;
+    let globalNodeBackgroundColor = '#FFFFFF';
+    let globalNodeBorderColor = '#E5E7EB';
+    let globalNodeBorderWidth = 1;
+    let globalNodeShape = 'rectangle';
+    let originalViewportBeforePrint = null;
+
+    // --- Menu Dropdown Logic ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const menuTriggerButtons = document.querySelectorAll('.menu-trigger-button');
+        const dropdownPanels = document.querySelectorAll('.dropdown-panel');
+        menuTriggerButtons.forEach(button => { button.addEventListener('click', function(event) { event.stopPropagation(); const targetPanel = this.nextElementSibling; const wasOpen = targetPanel && !targetPanel.classList.contains('hidden'); dropdownPanels.forEach(panel => { panel.classList.add('hidden'); }); if (!wasOpen && targetPanel?.classList.contains('dropdown-panel')) { targetPanel.classList.remove('hidden'); } }); });
+        document.addEventListener('click', function(event) { const clickedElement = event.target; let clickedOnTrigger = false; menuTriggerButtons.forEach(button => { if (button === clickedElement || button.contains(clickedElement)) clickedOnTrigger = true; }); if (clickedOnTrigger) return; let clickedInsideOpenPanel = false; dropdownPanels.forEach(panel => { if (!panel.classList.contains('hidden') && panel.contains(clickedElement)) clickedInsideOpenPanel = true; }); if (!clickedInsideOpenPanel) dropdownPanels.forEach(panel => panel.classList.add('hidden')); });
+        document.addEventListener('keydown', function(event) { if (event.key === 'Escape') dropdownPanels.forEach(panel => panel.classList.add('hidden')); });
+    });
+
+    // --- Undo/Redo & State Management ---
+    function updateUndoRedoButtons() { undoBtn.disabled = undoStack.length === 0; redoBtn.disabled = redoStack.length === 0; }
+    function recordAction(action, fromUndo = false, fromRedo = false) { if (!fromUndo && !fromRedo) { undoStack.push(action); redoStack = []; } else if (fromUndo) { redoStack.push(action); } else if (fromRedo) { undoStack.push(action); } updateUndoRedoButtons(); }
+    function getNodeDataForUndo(nodeEl) { const contentDiv = nodeEl.querySelector('.content'); let classes = Array.from(nodeEl.classList).filter(c => !['selected', 'dragging', 'node', 'editing'].includes(c)); return { id: nodeEl.id, text: contentDiv.innerHTML, left: nodeEl.style.left, top: nodeEl.style.top, width: nodeEl.style.width || `${nodeEl.offsetWidth}px`, height: nodeEl.style.height || `${nodeEl.offsetHeight}px`, className: classes.join(' '), inlineStyle: nodeEl.style.cssText, contentTextAlign: contentDiv.style.textAlign || 'center', }; }
+    
+    // --- Viewport & Zoom ---
+    function updateZoomDisplay() { if (zoomLevelDisplay) zoomLevelDisplay.textContent = `Zoom: ${Math.round(viewport.scale * 100)}%`; }
+    function applyViewportTransform() { panZoomContainer.style.transform = `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`; drawLines(); updateZoomDisplay(); }
+    function screenToWorld(screenX, screenY) { const canvasRect = canvasEl.getBoundingClientRect(); return { x: (screenX - canvasRect.left - viewport.panX) / viewport.scale, y: (screenY - canvasRect.top - viewport.panY) / viewport.scale }; }
+    function fitToContent(targetBounds = null) { const bounds = targetBounds || getDiagramBounds(); if (bounds.isEmpty && !targetBounds) { const pageW = parseFloat(a4PageGuideRect.getAttribute('width')); const pageH = parseFloat(a4PageGuideRect.getAttribute('height')); viewport.scale = Math.min(canvasEl.clientWidth / pageW, canvasEl.clientHeight / pageH) * 0.9; viewport.panX = (canvasEl.clientWidth / 2) - (pageW / 2) * viewport.scale; viewport.panY = (canvasEl.clientHeight / 2) - (pageH / 2) * viewport.scale; applyViewportTransform(); return; } const canvasWidth = canvasEl.clientWidth; const canvasHeight = canvasEl.clientHeight; const screenPadding = 20; const effectiveCanvasWidth = canvasWidth - (2 * screenPadding); const effectiveCanvasHeight = canvasHeight - (2 * screenPadding); let newScale; if (effectiveCanvasWidth <= 0 || effectiveCanvasHeight <= 0 || bounds.width <= 0 || bounds.height <= 0) newScale = 1.0; else newScale = Math.min(effectiveCanvasWidth / bounds.width, effectiveCanvasHeight / bounds.height); viewport.scale = Math.max(MIN_ZOOM_SCALE, Math.min(newScale, MAX_ZOOM_SCALE)); viewport.panX = (canvasWidth / 2) - (bounds.x + bounds.width / 2) * viewport.scale; viewport.panY = (canvasHeight / 2) - (bounds.y + bounds.height / 2) * viewport.scale; applyViewportTransform(); }
+    function fitToA4PageGuide() { const currentWidth = parseFloat(a4PageGuideRect.getAttribute('width')); const currentHeight = parseFloat(a4PageGuideRect.getAttribute('height')); fitToContent({ x: 0, y: 0, width: currentWidth, height: currentHeight, isEmpty: false }); }
+    function handleManualZoom(zoomIn) { const oldScale = viewport.scale; const oldPanX = viewport.panX; let newScale = zoomIn ? oldScale * ZOOM_BUTTON_STEP_FACTOR : oldScale / ZOOM_BUTTON_STEP_FACTOR; newScale = Math.max(MIN_ZOOM_SCALE, Math.min(newScale, MAX_ZOOM_SCALE)); viewport.scale = newScale; const screenCenterX = canvasEl.clientWidth / 2; const worldPointXAtScreenCenter = (screenCenterX - oldPanX) / oldScale; viewport.panX = screenCenterX - (worldPointXAtScreenCenter * newScale); const worldA4TopY = 0; viewport.panY = A4_VIEW_PADDING - (worldA4TopY * newScale); applyViewportTransform(); }
+    function resetZoomTo100() {
+        isA4ModeActive = true; 
+        viewport.scale = 1.0;
+        const pageW = parseFloat(a4PageGuideRect.getAttribute('width'));
+        viewport.panX = (canvasEl.clientWidth > pageW) ? (canvasEl.clientWidth / 2) - (pageW / 2) : A4_VIEW_PADDING;
+        viewport.panY = A4_VIEW_PADDING;
+        applyViewportTransform();
+    }
+
+    // --- Node & Element Creation ---
+    function createNode(text = 'Novo Item', x = 150, y = 150, id = null, options = {}) { const { isUndoRedo = false, recordUndo = true } = options; if (!isUndoRedo && x === 150 && y === 150) { const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2); x = worldCenter.x - 50; y = worldCenter.y - 20; const pageW = a4PageGuideRect.getAttribute('width'); const pageH = a4PageGuideRect.getAttribute('height'); x = Math.max(20, Math.min(x, pageW - 120)); y = Math.max(20, Math.min(y, pageH - 60)); } let nodeId = id; let isNewNodeFromUser = false; if (!nodeId) { isNewNodeFromUser = !isUndoRedo; let maxId = -1; document.querySelectorAll('.node[id^="node-"]').forEach(n => { const num = parseInt(n.id.split('-')[1]); if (!isNaN(num) && num > maxId) maxId = num; }); nodeCounter = maxId + 1; nodeId = 'node-' + nodeCounter; } else { const numId = parseInt(id.split('-')[1]); if (!isNaN(numId) && numId >= nodeCounter) nodeCounter = numId + 1; } const node = document.createElement('div'); node.className = 'node'; node.id = nodeId; node.style.left = `${x}px`; node.style.top = `${y}px`; if (!id || isNewNodeFromUser) { node.style.backgroundColor = globalNodeBackgroundColor; node.style.borderColor = globalNodeBorderColor; node.style.borderRadius = ''; node.style.borderWidth = `${globalNodeBorderWidth}px`; node.style.borderStyle = parseInt(globalNodeBorderWidth) > 0 ? 'solid' : 'none'; if (globalNodeShape === 'ellipse') node.classList.add('node-ellipse'); } const content = document.createElement('div'); content.className = 'content'; content.innerHTML = text; node.appendChild(content); ['top', 'bottom', 'left', 'right'].forEach(pos => { const connector = document.createElement('div'); connector.className = 'connector ' + pos; connector.dataset.position = pos; connector.dataset.nodeId = nodeId; node.appendChild(connector); }); const handle = document.createElement('div'); handle.className = 'resize-handle'; handle.dataset.nodeId = nodeId; node.appendChild(handle); container.appendChild(node); addNodeEventListeners(node); updateNodeVisuals(node); if (recordUndo && isNewNodeFromUser) recordAction({ type: 'createNode', nodeId: node.id, nodeData: getNodeDataForUndo(node) }); return node; }
+    function addNodeEventListeners(node) { node.addEventListener('dblclick', handleNodeDblClick); const contentDiv = node.querySelector('.content'); contentDiv.addEventListener('focus', () => { node.dataset.originalContentForUndo = contentDiv.innerHTML; }); contentDiv.addEventListener('input', () => drawLines()); }
+
+    // --- Styling and Formatting ---
+    function showToolbar(el) { const rect = el.getBoundingClientRect(); toolbar.style.left = `${rect.left}px`; toolbar.style.top = `${rect.bottom + 10}px`; toolbar.style.visibility = 'visible'; }
+    function hideToolbar() { toolbar.style.visibility = 'hidden'; }
+    function applyFormat(cmd, val = null) { if (!editingNode) return; const contentDiv = editingNode.querySelector('.content'); contentDiv.focus(); if (savedRange) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(savedRange); } document.execCommand(cmd, false, val); contentDiv.focus(); }
+    function updateNodeVisuals(node) { if (!node) return; const bgColor = node.style.backgroundColor; const borderColor = node.style.borderColor; const borderWidth = parseInt(node.style.borderWidth) || 0; const isBgTransparent = bgColor === 'transparent' || bgColor === 'rgba(0, 0, 0, 0)'; const isBorderTransparent = borderWidth === 0 || borderColor === 'transparent' || borderColor === 'rgba(0, 0, 0, 0)'; if (isBgTransparent && isBorderTransparent) node.style.boxShadow = 'none'; else if (node.style.boxShadow === 'none') node.style.boxShadow = ''; }
+    function applyStyleToSingleNode(node, style, value) { if (!node) return; switch (style) { case 'backgroundColor': node.style.backgroundColor = value; break; case 'borderColor': node.style.borderColor = value; break; case 'borderWidth': const width = parseInt(value, 10); if (isNaN(width) || width <= 0) { node.style.borderWidth = `0px`; node.style.borderStyle = 'none'; } else { node.style.borderWidth = `${width}px`; node.style.borderStyle = 'solid'; const currentBorderColorVal = window.getComputedStyle(node).borderColor; if (['rgba(0, 0, 0, 0)', 'transparent'].includes(currentBorderColorVal)) node.style.borderColor = '#6b7280'; } break; case 'shape': node.classList.remove('node-ellipse'); node.style.borderRadius = ''; if (value === 'ellipse') node.classList.add('node-ellipse'); break; case 'transparent': node.style.backgroundColor = 'transparent'; node.style.borderColor = 'transparent'; node.style.borderWidth = '0px'; break; } updateNodeVisuals(node); }
+    function applyNodeStyle(style, value) { if (selectedItems.size === 0 && !editingNode) return; const targets = editingNode ? [editingNode] : Array.from(selectedItems).map(id => document.getElementById(id)); targets.forEach(node => applyStyleToSingleNode(node, style, value)); drawLines(); }
+    function applyTextAlign(alignValue) { if (!editingNode && selectedItems.size === 0) return; const targets = editingNode ? [editingNode] : Array.from(selectedItems).map(id => document.getElementById(id)); targets.forEach(node => { const contentDiv = node?.querySelector('.content'); if (contentDiv) contentDiv.style.textAlign = alignValue; }); }
+    function applyGlobalStylesToSelectedNodes() { selectedItems.forEach(nodeId => { const node = document.getElementById(nodeId); if (!node) return; node.style.backgroundColor = globalNodeBackgroundColor; node.style.borderColor = globalNodeBorderColor; const borderWidthNum = parseInt(globalNodeBorderWidth); node.style.borderWidth = `${borderWidthNum}px`; node.style.borderStyle = borderWidthNum > 0 ? 'solid' : 'none'; node.classList.toggle('node-ellipse', globalNodeShape === 'ellipse'); if (globalNodeShape !== 'ellipse') node.style.borderRadius = ''; updateNodeVisuals(node); }); drawLines(); }
+    function applyGlobalStylesToSelectedGroups() {
+        const bgColorHex = globalGroupBgColorInput.value;
+        const borderColorHex = globalGroupBorderColorInput.value;
+        const bgOpacity = globalGroupBgOpacityInput.value;
+        const borderOpacity = globalGroupBorderOpacityInput.value;
+
+        // Helper to convert hex to rgb
+        const hexToRgb = hex => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        };
+        
+        const bgRgb = hexToRgb(bgColorHex);
+        const borderRgb = hexToRgb(borderColorHex);
+
+        if (!bgRgb || !borderRgb) return; // Exit if a color is invalid
+
+        const newBgRgba = `rgba(${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}, ${bgOpacity})`;
+        const newBorderRgba = `rgba(${borderRgb.r}, ${borderRgb.g}, ${borderRgb.b}, ${borderOpacity})`;
+
+        selectedItems.forEach(itemId => {
+            const item = document.getElementById(itemId);
+            if (item && item.classList.contains('group-container')) {
+                item.style.backgroundColor = newBgRgba;
+                item.style.borderColor = newBorderRgba;
+            }
+        });
+    }
+
+
+    // --- Line Drawing & Connections ---
+    function getConnectorPosition(el, pos) {
+        const absPos = getAbsolutePosition(el);
+        const nodeWorldWidth = el.offsetWidth, nodeWorldHeight = el.offsetHeight;
+        switch (pos) {
+            case 'top':    return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y };
+            case 'bottom': return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y + nodeWorldHeight };
+            case 'left':   return { x: absPos.x, y: absPos.y + nodeWorldHeight / 2 };
+            case 'right':  return { x: absPos.x + nodeWorldWidth, y: absPos.y + nodeWorldHeight / 2 };
+            default:       return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y + nodeWorldHeight / 2 };
+        }
+    }
+    function createSvgPath(d, isTemp = false) { const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); p.style.fill = 'none'; p.style.strokeLinecap = 'round'; p.style.strokeLinejoin = 'round'; p.style.vectorEffect = "non-scaling-stroke"; if (isTemp) { p.classList.add('temp'); p.style.stroke = '#93c5fd'; p.style.strokeWidth = String(currentLineStrokeWidth); p.style.strokeDasharray = '6, 4'; } else { p.style.stroke = currentLineColor; p.style.strokeWidth = String(currentLineStrokeWidth); } svg.appendChild(p); }
+    function drawLines() {
+        svg.innerHTML = ''; // Clear previous lines
+        connections.forEach((conn, index) => {
+            const fromNode = document.getElementById(conn.from);
+            const toNode = document.getElementById(conn.to);
+            if (!fromNode || !toNode) return;
+            const start = getConnectorPosition(fromNode, conn.fromPos);
+            const end = getConnectorPosition(toNode, conn.toPos);
+            const dx = end.x - start.x, dy = end.y - start.y;
+            const factor = 0.6;
+            let c1x, c1y, c2x, c2y;
+            if (['left', 'right'].includes(conn.fromPos)) { c1x = start.x + dx * factor; c1y = start.y; } else { c1x = start.x; c1y = start.y + dy * factor; }
+            if (['left', 'right'].includes(conn.toPos)) { c2x = end.x - dx * factor; c2y = end.y; } else { c2x = end.x; c2y = end.y - dy * factor; }
+            const pathData = `M${start.x},${start.y} C${c1x},${c1y} ${c2x},${c2y} ${end.x},${end.y}`;
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.classList.add('connection-group');
+            group.dataset.connIndex = String(index);
+            const isSelected = selectedConnections.has(index);
+            const visibleLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            visibleLine.setAttribute('d', pathData);
+            visibleLine.style.fill = 'none';
+            visibleLine.style.strokeLinecap = 'round';
+            visibleLine.style.strokeLinejoin = 'round';
+            visibleLine.style.pointerEvents = 'none';
+            visibleLine.style.vectorEffect = "non-scaling-stroke";
+            visibleLine.style.stroke = isSelected ? '#f59e0b' : (conn.color || currentLineColor);
+            visibleLine.style.strokeWidth = isSelected ? String(Number(conn.width || currentLineStrokeWidth) + 1.5) : String(conn.width || currentLineStrokeWidth);
+            const hitBoxLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            hitBoxLine.setAttribute('d', pathData);
+            hitBoxLine.style.stroke = 'transparent';
+            hitBoxLine.style.strokeWidth = '15px';
+            hitBoxLine.style.fill = 'none';
+            hitBoxLine.style.cursor = 'pointer';
+            group.appendChild(hitBoxLine);
+            group.appendChild(visibleLine);
+            svg.appendChild(group);
+        });
+        if (actionState.type === 'linking' && actionState.target) {
+            const start = getConnectorPosition(actionState.target, actionState.linkStartPos);
+            const worldMouseEnd = screenToWorld(globalScreenMouse.x, globalScreenMouse.y);
+            const dx = worldMouseEnd.x - start.x, dy = worldMouseEnd.y - start.y;
+            const factor = 0.6;
+            let c1x, c1y, c2x, c2y;
+            if (['left', 'right'].includes(actionState.linkStartPos)) { c1x = start.x + dx * factor; c1y = start.y; } else { c1x = start.x; c1y = start.y + dy * factor; }
+            c2x = worldMouseEnd.x - dx * (1 - factor); c2y = worldMouseEnd.y - dy * (1 - factor);
+            createSvgPath(`M${start.x},${start.y} C${c1x},${c1y} ${c2x},${c2y} ${worldMouseEnd.x},${worldMouseEnd.y}`, true);
+        }
+    }
+    
+    // --- Grouping Logic ---
+    function getAbsolutePosition(element) {
+        let x = 0;
+        let y = 0;
+        let currentElement = element;
+        // Traverse up the offsetParents chain to calculate absolute position relative to the main container
+        while (currentElement && currentElement !== container) {
+            x += currentElement.offsetLeft;
+            y += currentElement.offsetTop;
+            currentElement = currentElement.offsetParent;
+        }
+        return { x, y };
+    }
+
+    function handleGroup() {
+        if (selectedItems.size < 2) {
+            alert("Por favor, selecione pelo menos dois itens para agrupar.");
+            return;
+        }
+
+        const nodesToGroup = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node'));
+        if (nodesToGroup.length < 2) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        nodesToGroup.forEach(node => {
+            const absPos = getAbsolutePosition(node);
+            minX = Math.min(minX, absPos.x);
+            minY = Math.min(minY, absPos.y);
+            maxX = Math.max(maxX, absPos.x + node.offsetWidth);
+            maxY = Math.max(maxY, absPos.y + node.offsetHeight);
+        });
+
+        const padding = 25;
+        const groupLeft = minX - padding;
+        const groupTop = minY - padding;
+        const groupWidth = (maxX - minX) + (2 * padding);
+        const groupHeight = (maxY - minY) + (2 * padding);
+
+        const groupContainer = document.createElement('div');
+        groupContainer.id = 'group-' + Date.now();
+        groupContainer.className = 'group-container';
+        groupContainer.style.left = `${groupLeft}px`;
+        groupContainer.style.top = `${groupTop}px`;
+        groupContainer.style.width = `${groupWidth}px`;
+        groupContainer.style.height = `${groupHeight}px`;
+        container.appendChild(groupContainer);
+
+        nodesToGroup.forEach(node => {
+            const absPos = getAbsolutePosition(node);
+            // Set new position relative to the group container
+            node.style.left = `${absPos.x - groupLeft}px`;
+            node.style.top = `${absPos.y - groupTop}px`;
+            node.classList.add('in-group'); // Hides individual connectors/handles via CSS
+            groupContainer.appendChild(node);
+        });
+        
+        selectedItems.clear();
+        selectedItems.add(groupContainer.id);
+        updateSelectionVisuals();
+        drawLines();
+        // Future improvement: recordAction({ type: 'group', ... });
+    }
+
+    function handleUngroup() {
+        const groupsToUngroup = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('group-container'));
+        if (groupsToUngroup.length === 0) {
+            alert("Por favor, selecione um grupo para desagrupar.");
+            return;
+        }
+
+        const newlyUngroupedNodeIds = new Set();
+        groupsToUngroup.forEach(groupContainer => {
+            const childNodes = Array.from(groupContainer.querySelectorAll('.node'));
+            
+            childNodes.forEach(node => {
+                const nodeAbsPos = getAbsolutePosition(node);
+                node.style.left = `${nodeAbsPos.x}px`;
+                node.style.top = `${nodeAbsPos.y}px`;
+                node.classList.remove('in-group');
+                container.appendChild(node); // Move back to main container
+                newlyUngroupedNodeIds.add(node.id);
+            });
+
+            groupContainer.remove();
+        });
+
+        selectedItems.clear();
+        newlyUngroupedNodeIds.forEach(id => selectedItems.add(id));
+        updateSelectionVisuals();
+        drawLines();
+        // Future improvement: recordAction({ type: 'ungroup', ... });
+    }
+
+    // --- Selection & Alignment ---
+    function updateSelectionVisuals() { 
+        document.querySelectorAll('.node.selected, .group-container.selected').forEach(el => el.classList.remove('selected')); 
+        selectedItems.forEach(id => { 
+            const item = document.getElementById(id); 
+            if (item) item.classList.add('selected'); 
+        }); 
+    }
+    function selectItem(item, isCtrlPressed) {
+        const itemId = item.id;
+        if (!isCtrlPressed && selectedItems.has(itemId) && selectedItems.size === 1) return;
+        if (!isCtrlPressed) selectedItems.clear();
+        if (selectedItems.has(itemId)) selectedItems.delete(itemId); else selectedItems.add(itemId);
+        updateSelectionVisuals();
+    }
+    function selectNodesInRect(rect, isCtrlPressed) { if (!isCtrlPressed) selectedItems.clear(); document.querySelectorAll('.node:not(.in-group), .group-container').forEach(item => { const itemRect = item.getBoundingClientRect(); if (!(rect.right < itemRect.left || rect.left > itemRect.right || rect.bottom < itemRect.top || rect.top > itemRect.bottom)) selectedItems.add(item.id); }); updateSelectionVisuals(); }
+    function clearSelection() { const hadNodeSelection = selectedItems.size > 0; const hadConnSelection = selectedConnections.size > 0; selectedItems.clear(); selectedConnections.clear(); if (hadNodeSelection) updateSelectionVisuals(); if (hadConnSelection) drawLines(); }
+    function handleDelete() {
+        if (selectedConnections.size > 0) {
+            const connectionsToDelete = Array.from(selectedConnections).map(index => connections[index]).filter(Boolean);
+            if (connectionsToDelete.length > 0) {
+                recordAction({ type: 'deleteConnections', deletedConns: connectionsToDelete });
+                const connectionsToDeleteSet = new Set(connectionsToDelete.map(c => JSON.stringify(c)));
+                connections = connections.filter(c => !connectionsToDeleteSet.has(JSON.stringify(c)));
+            }
+            selectedConnections.clear();
+            drawLines();
+        } else if (selectedItems.size > 0) {
+            const nodesToDeleteData = [];
+            const connectionsLinkedToDeletedNodes = [];
+
+            const itemsToDelete = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean);
+            const nodeIdsToDelete = new Set();
+
+            itemsToDelete.forEach(item => {
+                if (item.classList.contains('group-container')) {
+                    // NOTE: Undo for group deletion is not implemented in this pass for simplicity.
+                    item.querySelectorAll('.node').forEach(node => nodeIdsToDelete.add(node.id));
+                } else if (item.classList.contains('node')) {
+                    nodeIdsToDelete.add(item.id);
+                }
+            });
+
+            nodeIdsToDelete.forEach(nodeId => {
+                const node = document.getElementById(nodeId);
+                if (node) {
+                    nodesToDeleteData.push(getNodeDataForUndo(node));
+                    connections.forEach(conn => {
+                        if (conn.from === nodeId || conn.to === nodeId) {
+                            if (!connectionsLinkedToDeletedNodes.some(c => c.from === conn.from && c.to === conn.to)) {
+                                connectionsLinkedToDeletedNodes.push({ ...conn });
+                            }
+                        }
+                    });
+                }
+            });
+
+            if (nodesToDeleteData.length > 0) {
+                recordAction({ type: 'deleteNodes', nodesData: nodesToDeleteData, connectionsData: connectionsLinkedToDeletedNodes });
+            }
+            
+            itemsToDelete.forEach(item => item.remove());
+            connections = connections.filter(c => !nodeIdsToDelete.has(c.from) && !nodeIdsToDelete.has(c.to));
+            
+            selectedItems.clear();
+            updateSelectionVisuals();
+            drawLines();
+        }
+    }
+    
+    // --- Page Settings Logic ---
+    function updatePageGuide() {
+        const size = pageSizeSelect.value;
+        const orientation = pageOrientationSelect.value;
+        let finalWidth, finalHeight;
+
+        if (size === 'custom') {
+            finalWidth = parseInt(pageCustomWidth.value, 10);
+            finalHeight = parseInt(pageCustomHeight.value, 10);
+        } else {
+            const dims = PAGE_SIZES_PX[size];
+            if (orientation === 'landscape') {
+                finalWidth = dims.height;
+                finalHeight = dims.width;
+            } else { // portrait
+                finalWidth = dims.width;
+                finalHeight = dims.height;
+            }
+        }
+
+        if (a4PageGuideRect) {
+            a4PageGuideRect.setAttribute('width', finalWidth);
+            a4PageGuideRect.setAttribute('height', finalHeight);
+        }
+
+        let printSizeRule;
+        if (size === 'custom') {
+            printSizeRule = `${finalWidth}px ${finalHeight}px`;
+        } else {
+            const physicalDims = PAGE_SIZES_PHYSICAL[size];
+            if (orientation === 'landscape') {
+                printSizeRule = `${physicalDims.height} ${physicalDims.width}`;
+            } else { // portrait
+                printSizeRule = `${physicalDims.width} ${physicalDims.height}`;
+            }
+        }
+        
+        dynamicPrintStyle.innerHTML = `@page { size: ${printSizeRule}; margin: 0 !important; }`;
+    }
+    
+    function alignSelected(type) { const nodes = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean); if (nodes.length < 2) return; const initialPositions = nodes.map(node => ({ nodeId: node.id, oldLeft: `${node.offsetLeft}px`, oldTop: `${node.offsetTop}px` })); let targetPos; switch (type) { case 'left': targetPos = Math.min(...nodes.map(n => n.offsetLeft)); nodes.forEach(n => n.style.left = `${targetPos}px`); break; case 'right': targetPos = Math.max(...nodes.map(n => n.offsetLeft + n.offsetWidth)); nodes.forEach(n => n.style.left = `${Math.round(targetPos - n.offsetWidth)}px`); break; case 'top': targetPos = Math.min(...nodes.map(n => n.offsetTop)); nodes.forEach(n => n.style.top = `${targetPos}px`); break; case 'bottom': targetPos = Math.max(...nodes.map(n => n.offsetTop + n.offsetHeight)); nodes.forEach(n => n.style.top = `${Math.round(targetPos - n.offsetHeight)}px`); break; case 'center-h': const midX = nodes.reduce((sum, n) => sum + n.offsetLeft + n.offsetWidth / 2, 0) / nodes.length; nodes.forEach(n => n.style.left = `${Math.round(midX - n.offsetWidth / 2)}px`); break; case 'center-v': const midY = nodes.reduce((sum, n) => sum + n.offsetTop + n.offsetHeight / 2, 0) / nodes.length; nodes.forEach(n => n.style.top = `${Math.round(midY - n.offsetHeight / 2)}px`); break; } const finalChanges = initialPositions.map(pos => ({ ...pos, newLeft: document.getElementById(pos.nodeId).style.left, newTop: document.getElementById(pos.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges }); drawLines(); }
+    function distributeSelected(type) { const nodes = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean); if (nodes.length < 2) return; const initialPositions = nodes.map(node => ({ nodeId: node.id, oldLeft: `${node.offsetLeft}px`, oldTop: `${node.offsetTop}px` })); if (type === 'horizontal') { nodes.sort((a, b) => a.offsetLeft - b.offsetLeft); const minLeft = nodes[0].offsetLeft; const maxRight = nodes[nodes.length - 1].offsetLeft + nodes[nodes.length - 1].offsetWidth; const totalSpan = maxRight - minLeft; let totalNodesWidth = nodes.reduce((sum, n) => sum + n.offsetWidth, 0); const gap = (totalSpan - totalNodesWidth) / (nodes.length - 1); let currentX = parseFloat(minLeft); for (let i = 0; i < nodes.length; i++) { nodes[i].style.left = `${Math.round(currentX)}px`; currentX += nodes[i].offsetWidth + gap; } } else if (type === 'vertical') { nodes.sort((a, b) => a.offsetTop - b.offsetTop); const minTop = nodes[0].offsetTop; const maxBottom = nodes[nodes.length - 1].offsetTop + nodes[nodes.length - 1].offsetHeight; const totalSpan = maxBottom - minTop; let totalNodesHeight = nodes.reduce((sum, n) => sum + n.offsetHeight, 0); const gap = (totalSpan - totalNodesHeight) / (nodes.length - 1); let currentY = parseFloat(minTop); for (let i = 0; i < nodes.length; i++) { nodes[i].style.top = `${Math.round(currentY)}px`; currentY += nodes[i].offsetHeight + gap; } } const finalChanges = initialPositions.map(pos => ({ ...pos, newLeft: document.getElementById(pos.nodeId).style.left, newTop: document.getElementById(pos.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges }); drawLines(); }
+
+    // --- Clipboard & Save/Load ---
+    // NOTE: Save/Load does not currently support groups. This is a future improvement.
+    function handleCopy() { if (selectedItems.size === 0) return; appClipboard.items = []; appClipboard.type = 'copy'; let minLeft = Infinity, minTop = Infinity; const nodesToProcess = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node')); if (nodesToProcess.length === 0) return; nodesToProcess.forEach(n => { minLeft = Math.min(minLeft, n.offsetLeft); minTop = Math.min(minTop, n.offsetTop); }); appClipboard.anchor = { left: minLeft, top: minTop }; appClipboard.items = nodesToProcess.map(node => ({ contentHTML: node.querySelector('.content').innerHTML, className: Array.from(node.classList).filter(c => !['selected', 'dragging'].includes(c)).join(' '), inlineStyle: node.style.cssText, width: node.offsetWidth, height: node.offsetHeight, relativeLeft: node.offsetLeft - minLeft, relativeTop: node.offsetTop - minTop, })); }
+    function handleCut() { handleCopy(); if (appClipboard.items.length > 0) { appClipboard.type = 'cut'; handleDelete(); } }
+    function handlePaste() { if (appClipboard.items.length === 0) return; const pasteOffsetX = 20, pasteOffsetY = 20; const worldMousePaste = screenToWorld(globalScreenMouse.x, globalScreenMouse.y); let basePasteX, basePasteY; const canvasRect = canvasEl.getBoundingClientRect(); if (globalScreenMouse.x < canvasRect.left || globalScreenMouse.x > canvasRect.right || globalScreenMouse.y < canvasRect.top || globalScreenMouse.y > canvasRect.bottom || (globalScreenMouse.x === 0 && globalScreenMouse.y === 0)) { basePasteX = appClipboard.anchor.left + pasteOffsetX; basePasteY = appClipboard.anchor.top + pasteOffsetY; } else { basePasteX = worldMousePaste.x; basePasteY = worldMousePaste.y; } const pastedNodesData = []; clearSelection(); appClipboard.items.forEach(itemData => { const newX = basePasteX + itemData.relativeLeft; const newY = basePasteY + itemData.relativeTop; const newNode = createNode(itemData.contentHTML, newX, newY, null, { recordUndo: false }); newNode.className = itemData.className; if (!newNode.classList.contains('node')) newNode.classList.add('node'); newNode.style.cssText += itemData.inlineStyle; newNode.style.width = `${itemData.width}px`; newNode.style.height = `${itemData.height}px`; newNode.style.left = `${newX}px`; newNode.style.top = `${newY}px`; updateNodeVisuals(newNode); selectedItems.add(newNode.id); pastedNodesData.push(getNodeDataForUndo(newNode)); }); recordAction({ type: 'pasteNodes', nodesData: pastedNodesData }); updateSelectionVisuals(); drawLines(); if (appClipboard.type === 'cut') appClipboard = { type: null, items: [], anchor: { left: 0, top: 0 } }; }
+    
+    function handleLoadDiagram(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const data = JSON.parse(e.target.result); if (!data.nodes || !data.connections) { alert('Arquivo de diagrama inválido.'); return; } undoStack = []; redoStack = []; updateUndoRedoButtons(); selectedItems.clear(); selectedConnections.clear(); editingNode = null; hideToolbar(); svg.innerHTML = ''; container.innerHTML = ''; connections = []; viewport = data.viewport || { scale: 1.0, panX: 0, panY: 0 }; ({ color: currentLineColor, width: currentLineStrokeWidth } = data.lineStyle || { color: '#60a5fa', width: 2.5 }); lineColorInput.value = currentLineColor; lineWidthInput.value = currentLineStrokeWidth; const gStyles = data.globalNodeStyles || {}; globalNodeBackgroundColor = gStyles.backgroundColor || '#FFFFFF'; globalNodeBorderColor = gStyles.borderColor || '#E5E7EB'; globalNodeBorderWidth = gStyles.borderWidth ?? 1; globalNodeShape = gStyles.shape || 'rectangle'; globalNodeBgColorInput.value = globalNodeBackgroundColor; globalNodeBorderColorInput.value = globalNodeBorderColor; globalNodeBorderWidthInput.value = globalNodeBorderWidth; globalNodeShapeSelect.value = globalNodeShape; let maxLoadedIdNum = -1; data.nodes.forEach(nodeData => { const newNode = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); newNode.className = 'node ' + nodeData.className; newNode.style.cssText = nodeData.inlineStyle; newNode.style.left = nodeData.left; newNode.style.top = nodeData.top; newNode.style.width = nodeData.width; newNode.style.height = nodeData.height; newNode.querySelector('.content').style.textAlign = nodeData.contentTextAlign || 'center'; updateNodeVisuals(newNode); const match = nodeData.id.match(/node-(\d+)/); if (match) maxLoadedIdNum = Math.max(maxLoadedIdNum, parseInt(match[1])); }); connections = data.connections; nodeCounter = data.nodeCounter ?? maxLoadedIdNum + 1; applyViewportTransform(); updateSelectionVisuals(); resetZoomTo100(); } catch (err) { console.error("Erro ao carregar diagrama:", err); alert('Falha ao carregar o arquivo do diagrama.'); } }; reader.readAsText(file); event.target.value = null; }
+    function handleSaveDiagram() { const diagramData = { nodes: Array.from(document.querySelectorAll('.node')).map(getNodeDataForUndo), connections: connections, nodeCounter: nodeCounter, lineStyle: { color: currentLineColor, width: currentLineStrokeWidth }, globalNodeStyles: { backgroundColor: globalNodeBackgroundColor, borderColor: globalNodeBorderColor, borderWidth: globalNodeBorderWidth, shape: globalNodeShape }, viewport: viewport }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(diagramData, null, 2)], { type: 'application/json' })); a.download = 'diagrama.json'; a.click(); URL.revokeObjectURL(a.href); }
+
+    // --- Printing ---
+    function getDiagramBounds() { let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity; let hasElements = false; document.querySelectorAll('.node, .group-container').forEach(item => { hasElements = true; minX = Math.min(minX, item.offsetLeft); minY = Math.min(minY, item.offsetTop); maxX = Math.max(maxX, item.offsetLeft + item.offsetWidth); maxY = Math.max(maxY, item.offsetTop + item.offsetHeight); }); if (!hasElements) return { x: 0, y: 0, width: A4_WIDTH_PX, height: A4_HEIGHT_PX, isEmpty: true }; const padding = 20; return { x: minX - padding, y: minY - padding, width: (maxX - minX) + 2 * padding, height: (maxY - minY) + 2 * padding, isEmpty: false }; }
+    function setupForPrint() { originalViewportBeforePrint = { ...viewport }; viewport.scale = 1.0; viewport.panX = 0; viewport.panY = 0; panZoomContainer.style.width = `${a4PageGuideRect.getAttribute('width')}px`; panZoomContainer.style.height = `${a4PageGuideRect.getAttribute('height')}px`; svgContainer.style.width = `${a4PageGuideRect.getAttribute('width')}px`; svgContainer.style.height = `${a4PageGuideRect.getAttribute('height')}px`; svg.setAttribute('width', a4PageGuideRect.getAttribute('width')); svg.setAttribute('height', a4PageGuideRect.getAttribute('height')); applyViewportTransform(); }
+    function cleanupAfterPrint() {
+        // Restore container dimensions to be responsive again
+        panZoomContainer.style.width = '100%';
+        panZoomContainer.style.height = '100%';
+        svgContainer.style.width = '100%';
+        svgContainer.style.height = '100%';
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+    
+        // Call the function that resets view to 100%
+        resetZoomTo100(); 
+        
+        // Nullify the saved state, as we don't need it anymore
+        originalViewportBeforePrint = null;
+    }
+    
+    // --- Event Handlers: Mouse, Keyboard, General ---
+    function handleNodeDblClick(e) { e.stopPropagation(); const node = e.currentTarget; if (editingNode && editingNode !== node) { editingNode.querySelector('.content').blur(); } editingNode = node; node.classList.add('editing'); const contentDiv = node.querySelector('.content'); contentDiv.contentEditable = true; contentDiv.focus(); showToolbar(node); const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(contentDiv); selection.removeAllRanges(); selection.addRange(range); }
+    function handleFocusOutOnContainer(e) { const node = e.target.closest('.node.editing'); if (!node || !editingNode) return; const isFocusGoingToToolbar = toolbar.contains(e.relatedTarget); if (!isFocusGoingToToolbar) { const originalContent = node.dataset.originalContentForUndo; const newContent = e.target.innerHTML; if (originalContent !== newContent) recordAction({ type: 'changeContent', nodeId: node.id, oldContent: originalContent, newContent: newContent }); delete node.dataset.originalContentForUndo; node.classList.remove('editing'); e.target.contentEditable = false; editingNode = null; hideToolbar(); } }
+    function handleInteractionEnd(e) { if (isPanning) { isPanning = false; canvasEl.style.cursor = 'default'; return; } let actionRecorded = false; if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const exists = connections.some(c => (c.from === from.id && c.to === to.id) || (c.from === to.id && c.to === from.id)); if (!exists) { const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else if (toolbar.style.visibility === 'visible') hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
+    
+    // --- Initial Event Listener Setup ---
+    window.addEventListener('beforeprint', setupForPrint);
+    window.addEventListener('afterprint', cleanupAfterPrint);
+    window.addEventListener('mouseleave', (e) => { if (isPanning || actionState.type) handleInteractionEnd(e); });
+    fitToContentBtn.addEventListener('click', () => { isA4ModeActive = false; fitToContent(); });
+    fitToPageBtn.addEventListener('click', () => { isA4ModeActive = true; fitToA4PageGuide(); });
+    zoomInBtnManual.addEventListener('click', () => handleManualZoom(true));
+    zoomOutBtnManual.addEventListener('click', () => handleManualZoom(false));
+    zoomResetBtnManual.addEventListener('click', resetZoomTo100);
+    container.addEventListener('focusout', handleFocusOutOnContainer);
+
+    document.addEventListener('mousedown', e => { 
+        const clickedConnectionGroup = e.target.closest('g.connection-group');
+        if (clickedConnectionGroup) {
+            e.stopPropagation();
+            if (selectedItems.size > 0) {
+                selectedItems.clear();
+                updateSelectionVisuals();
+            }
+            const connIndex = parseInt(clickedConnectionGroup.dataset.connIndex, 10);
+            const isCtrl = e.ctrlKey || e.metaKey;
+            if (!isCtrl) {
+                if (!(selectedConnections.has(connIndex) && selectedConnections.size === 1)) {
+                    selectedConnections.clear();
+                    selectedConnections.add(connIndex);
+                }
+            } else {
+                if (selectedConnections.has(connIndex)) {
+                    selectedConnections.delete(connIndex);
+                } else {
+                    selectedConnections.add(connIndex);
+                }
+            }
+            drawLines();
+            return;
+        }
+
+        const clickedItem = e.target.closest('.node, .group-container');
+        
+        let isEditableContentClick = editingNode?.querySelector('.content')?.contains(e.target); 
+        if (isEditableContentClick && e.shiftKey && e.button === 0) { isPanning = true; lastPanPosition = { x: e.clientX, y: e.clientY }; canvasEl.style.cursor = 'grabbing'; e.preventDefault(); return; } 
+        if (isEditableContentClick) { return; }
+
+        actionState.startX = e.clientX; actionState.startY = e.clientY; actionState.isCtrl = e.ctrlKey || e.metaKey; actionState.moved = false; 
+        
+        if (clickedItem) {
+            if (selectedConnections.size > 0) {
+                selectedConnections.clear();
+                drawLines();
+            }
+            const target = e.target;
+            if (clickedItem.classList.contains('node') && !clickedItem.classList.contains('in-group')) {
+                if (target.classList.contains('connector')) { e.stopPropagation(); actionState = { ...actionState, type: 'linking', target: clickedItem, linkStartPos: target.dataset.position }; document.body.style.cursor = 'crosshair'; }
+                else if (target.classList.contains('resize-handle')) { e.stopPropagation(); actionState = { ...actionState, type: 'resizing', target: clickedItem, startWidth: clickedItem.offsetWidth, startHeight: clickedItem.offsetHeight }; document.body.style.cursor = 'se-resize'; }
+                else { actionState = { ...actionState, type: 'potential-drag', target: clickedItem }; }
+            } else { // Is a group or a node inside a group
+                 actionState = { ...actionState, type: 'potential-drag', target: clickedItem.closest('.group-container') || clickedItem };
+            }
+        } else {
+            actionState.type = 'potential-marquee';
+        } 
+    });
+    document.addEventListener('mousemove', e => { globalScreenMouse = { x: e.clientX, y: e.clientY }; if (isPanning) { const dx = e.clientX - lastPanPosition.x, dy = e.clientY - lastPanPosition.y; viewport.panX += dx; viewport.panY += dy; lastPanPosition = { x: e.clientX, y: e.clientY }; applyViewportTransform(); return; } if (!actionState.type) return; if (!actionState.moved && (Math.abs(e.clientX - actionState.startX) > DRAG_THRESHOLD || Math.abs(e.clientY - actionState.startY) > DRAG_THRESHOLD)) { actionState.moved = true; if (actionState.type === 'potential-drag' && actionState.target) { actionState.type = 'dragging'; actionState.target.classList.add('dragging'); document.body.style.cursor = 'grabbing'; const itemToSelect = actionState.target; if (!actionState.isCtrl && !selectedItems.has(itemToSelect.id)) { selectItem(itemToSelect, false); } const targets = selectedItems.has(itemToSelect.id) ? Array.from(selectedItems).map(id => document.getElementById(id)) : [itemToSelect]; actionState.initialPositions = targets.filter(Boolean).map(el => ({ element: el, initialLeft: el.offsetLeft, initialTop: el.offsetTop })); } else if (actionState.type === 'potential-marquee') { actionState.type = 'marquee'; marquee.style.visibility = 'visible'; } } switch (actionState.type) { case 'dragging': actionState.initialPositions.forEach(pos => { pos.element.style.left = `${pos.initialLeft + (e.clientX - actionState.startX) / viewport.scale}px`; pos.element.style.top = `${pos.initialTop + (e.clientY - actionState.startY) / viewport.scale}px`; }); drawLines(); break; case 'resizing': if (actionState.target) { actionState.target.style.width = `${Math.max(100, actionState.startWidth + (e.clientX - actionState.startX) / viewport.scale)}px`; actionState.target.style.height = `${Math.max(40, actionState.startHeight + (e.clientY - actionState.startY) / viewport.scale)}px`; drawLines(); } break; case 'linking': drawLines(); break; case 'marquee': const x = Math.min(e.clientX, actionState.startX), y = Math.min(e.clientY, actionState.startY), w = Math.abs(e.clientX - actionState.startX), h = Math.abs(e.clientY - actionState.startY); marquee.style.left = `${x}px`; marquee.style.top = `${y}px`; marquee.style.width = `${w}px`; marquee.style.height = `${h}px`; break; } if (actionState.type && !actionState.type.startsWith('potential')) e.preventDefault(); });
+    document.addEventListener('mouseup', handleInteractionEnd);
+    document.addEventListener('keydown', e => { const activeEl = document.activeElement; const isEditingText = activeEl?.closest('.node.editing .content'); const isInputFocused = ['INPUT', 'SELECT'].includes(activeEl?.tagName); if (e.key !== 'Escape' && (activeEl?.closest('.dropdown-panel:not(.hidden)') || activeEl?.closest('.menu-trigger-button'))) if(!(e.ctrlKey || e.metaKey || ['Delete', 'Backspace', 'Enter'].includes(e.key))) return; if (e.ctrlKey || e.metaKey) { if (!isEditingText && !isInputFocused) { switch (e.key.toLowerCase()) { case 'c': handleCopy(); e.preventDefault(); break; case 'x': handleCut(); e.preventDefault(); break; case 'v': handlePaste(); e.preventDefault(); break; case 'a': e.preventDefault(); selectedItems.clear(); document.querySelectorAll('.node').forEach(n => selectedItems.add(n.id)); updateSelectionVisuals(); break; case 'z': handleUndo(); e.preventDefault(); break; case 'y': handleRedo(); e.preventDefault(); break; case 'g': e.preventDefault(); if (e.shiftKey) { handleUngroup(); } else { handleGroup(); } break; } } } if (isEditingText && (e.ctrlKey || e.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter', 'Tab', 'Escape', 'Home', 'End'].includes(e.key))) return; if (isInputFocused && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter', 'Tab', 'Escape'].includes(e.key)) return; if (selectedItems.size > 0 && !isEditingText && !isInputFocused) { let moved = false; switch (e.key) { case 'ArrowUp': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop - KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowDown': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop + KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowLeft': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft - KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowRight': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft + KEY_MOVE_STEP}px`; }); moved = true; break; } if (moved) { e.preventDefault(); drawLines(); } } if (['Delete', 'Backspace'].includes(e.key) && !isEditingText && !isInputFocused) { if (selectedItems.size > 0 || selectedConnections.size > 0) { e.preventDefault(); handleDelete(); } } if (e.key === 'Escape' && !isEditingText && !isInputFocused) { clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } });
+    document.addEventListener('selectionchange', () => { if (editingNode) { const sel = window.getSelection(); if (sel.rangeCount > 0 && editingNode.querySelector('.content').contains(sel.anchorNode)) savedRange = sel.getRangeAt(0).cloneRange(); } });
+    canvasEl.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); const rect = canvasEl.getBoundingClientRect(); const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top; const worldX = (mouseX - viewport.panX) / viewport.scale, worldY = (mouseY - viewport.panY) / viewport.scale; const factor = e.deltaY < 0 ? (1 + 0.1) : (1 / (1 + 0.1)); const newScale = Math.max(MIN_ZOOM_SCALE, Math.min(viewport.scale * factor, MAX_ZOOM_SCALE)); viewport.panX = mouseX - worldX * newScale; viewport.panY = mouseY - worldY * newScale; viewport.scale = newScale; applyViewportTransform(); } });
+
+    // --- Page Settings Event Listeners ---
+    pageSizeSelect.addEventListener('change', () => {
+        if (pageSizeSelect.value === 'custom') {
+            customSizeInputs.classList.remove('hidden');
+        } else {
+            customSizeInputs.classList.add('hidden');
+        }
+    });
+    applyPageSettings.addEventListener('click', () => {
+        updatePageGuide();
+        fitToA4PageGuide(); // Re-fit the view when settings are applied
+        document.getElementById('page-menu').classList.add('hidden');
+    });
+
+    addNodeButton.addEventListener('click', () => { let refNode = null; if (selectedItems.size === 1) refNode = document.getElementById(selectedItems.values().next().value); else if (document.querySelectorAll('.node').length > 0) refNode = Array.from(document.querySelectorAll('.node')).reduce((last, curr) => parseInt(curr.id.split('-')[1]) > parseInt(last.id.split('-')[1]) ? curr : last); let newNodeX, newNodeY; if (refNode) { newNodeX = refNode.offsetLeft + refNode.offsetWidth + 30; newNodeY = refNode.offsetTop; } else { const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2); newNodeX = worldCenter.x - 50; newNodeY = worldCenter.y - 20; const pageW = a4PageGuideRect.getAttribute('width'); const pageH = a4PageGuideRect.getAttribute('height'); newNodeX = Math.max(20, Math.min(newNodeX, pageW - 120)); newNodeY = Math.max(20, Math.min(newNodeY, pageH - 60)); } const newNode = createNode('Novo Item', newNodeX, newNodeY); clearSelection(); selectedItems.add(newNode.id); updateSelectionVisuals(); });
+    saveDiagramButton.addEventListener('click', handleSaveDiagram);
+    loadDiagramInput.addEventListener('change', handleLoadDiagram);
+    printToPDFBtn.addEventListener('click', () => window.print());
+    lineColorInput.addEventListener('input', (e) => { currentLineColor = e.target.value; drawLines(); });
+    lineWidthInput.addEventListener('input', (e) => { const w = parseFloat(e.target.value); if (!isNaN(w) && w >= 0.5 && w <= 20) { currentLineStrokeWidth = w; drawLines(); } });
+    lineWidthInput.addEventListener('change', (e) => { let w = parseFloat(e.target.value); w = Math.max(0.5, Math.min(w, 20)); currentLineStrokeWidth = w; e.target.value = w; drawLines(); });
+    globalNodeBgColorInput.addEventListener('input', (e) => { globalNodeBackgroundColor = e.target.value; });
+    globalNodeBorderColorInput.addEventListener('input', (e) => { globalNodeBorderColor = e.target.value; });
+    globalNodeBorderWidthInput.addEventListener('input', (e) => { let w = parseInt(e.target.value, 10); if (!isNaN(w) && w >= 0 && w <= 15) globalNodeBorderWidth = w; });
+    globalNodeBorderWidthInput.addEventListener('change', (e) => { let w = parseInt(e.target.value, 10); w = Math.max(0, Math.min(w, 15)); globalNodeBorderWidth = w; e.target.value = w; });
+    globalNodeShapeSelect.addEventListener('change', (e) => { globalNodeShape = e.target.value; });
+    applyGlobalsToSelectedBtn.addEventListener('click', applyGlobalStylesToSelectedNodes);
+    applyGlobalsToGroupsBtn.addEventListener('click', applyGlobalStylesToSelectedGroups);
+    deleteBtn.addEventListener('click', handleDelete);
+    groupBtn.addEventListener('click', handleGroup);
+    ungroupBtn.addEventListener('click', handleUngroup);
+    
+    // CORREÇÃO: Impede que cliques nos menus se propaguem e desmarquem itens
+    document.getElementById('top-buttons-container').addEventListener('mousedown', e => e.stopPropagation());
+    toolbar.addEventListener('mousedown', e => e.stopPropagation());
+
+    document.getElementById('top-buttons-container').addEventListener('click', e => { const alignBtn = e.target.closest('button[data-align]'); const distBtn = e.target.closest('button[data-distribute]'); if (alignBtn) alignSelected(alignBtn.dataset.align); else if (distBtn) distributeSelected(distBtn.dataset.distribute); });
+    toolbar.querySelectorAll('button, input, div.color-swatch').forEach(el => el.addEventListener('mousedown', e => e.preventDefault()));
+    toolbar.addEventListener('change', e => { const el = e.target, style = el.dataset.style, cmd = el.dataset.cmd, val = el.value; if (style) applyNodeStyle(style, val); else if (cmd) { if (cmd === 'fontSize') { if (!editingNode) return; const sizeMap = { '2': '0.8em', '3': '1.0em', '5': '1.5em', '7': '2.0em' }; editingNode.querySelector('.content').style.fontSize = sizeMap[val] || '1.0em'; } else applyFormat(cmd, val); } });
+    toolbar.addEventListener('input', e => { const el = e.target, style = el.dataset.style; if (style && (el.type === 'color' || el.type === 'number')) applyNodeStyle(style, el.value); });
+    toolbar.addEventListener('click', e => { const btn = e.target.closest('button[data-cmd], button[data-style], button[data-textalign]'); if (btn?.dataset.cmd) applyFormat(btn.dataset.cmd); else if (btn?.dataset.style) applyNodeStyle(btn.dataset.style); else if (btn?.dataset.textalign) applyTextAlign(btn.dataset.textalign); else { const sw = e.target.closest('.color-swatch'); if (sw) applyFormat('foreColor', sw.dataset.color); } });
+    customColorInput.addEventListener('input', e => applyFormat('foreColor', e.target.value));
+
+    // --- Undo/Redo Handlers ---
+    function handleUndo() { if (undoStack.length === 0) return; const action = undoStack.pop(); let needsRedraw = false; switch (action.type) { case 'createNode': document.getElementById(action.nodeId)?.remove(); connections = connections.filter(c => c.from !== action.nodeId && c.to !== action.nodeId); needsRedraw = true; break; case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; node.querySelector('.content').style.textAlign = nodeData.contentTextAlign; updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break; case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break; case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.oldWidth; nResize.style.height = action.oldHeight; } needsRedraw = true; break; case 'createConnection': connections.pop(); needsRedraw = true; break; case 'deleteConnections': connections.push(...action.deletedConns); needsRedraw = true; break; case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.oldContent; break; case 'pasteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); connections = connections.filter(c => c.from !== nData.id && c.to !== nData.id); }); needsRedraw = true; break; } recordAction(action, true, false); if (needsRedraw) drawLines(); updateSelectionVisuals(); }
+    function handleRedo() { if (redoStack.length === 0) return; const action = redoStack.pop(); let needsRedraw = false; switch (action.type) { case 'createNode': case 'pasteNodes': const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData; nodesToCreate.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; node.querySelector('.content').style.textAlign = nodeData.contentTextAlign; updateNodeVisuals(node); }); needsRedraw = true; break; case 'deleteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); }); const nodesToFilter = new Set(action.nodesData.map(nd => nd.id)); connections = connections.filter(c => !nodesToFilter.has(c.from) && !nodesToFilter.has(c.to)); selectedItems.clear(); needsRedraw = true; break; case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.newLeft; n.style.top = c.newTop; } }); needsRedraw = true; break; case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.newWidth; nResize.style.height = action.newHeight; } needsRedraw = true; break; case 'createConnection': if (action.connectionData) connections.push(action.connectionData); needsRedraw = true; break; case 'deleteConnections': const connsToRedoDelete = new Set(action.deletedConns.map(c => JSON.stringify(c))); connections = connections.filter(c => !connsToRedoDelete.has(JSON.stringify(c))); selectedConnections.clear(); needsRedraw = true; break; case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.newContent; break; } recordAction(action, false, true); if (needsRedraw) drawLines(); updateSelectionVisuals(); }
+    undoBtn.addEventListener('click', handleUndo);
+    redoBtn.addEventListener('click', handleRedo);
+
+    // --- Initialization ---
+    function initialize() {
+        lineColorInput.value = currentLineColor;
+        lineWidthInput.value = currentLineStrokeWidth;
+        globalNodeBgColorInput.value = globalNodeBackgroundColor;
+        globalNodeBorderColorInput.value = globalNodeBorderColor;
+        globalNodeBorderWidthInput.value = globalNodeBorderWidth;
+        globalNodeShapeSelect.value = globalNodeShape;
+        updateUndoRedoButtons();
+        isA4ModeActive = true; 
+        viewport.scale = 1.0;
+        viewport.panX = (canvasEl.clientWidth > A4_WIDTH_PX) ? (canvasEl.clientWidth / 2) - (A4_WIDTH_PX / 2) : A4_VIEW_PADDING;
+        viewport.panY = A4_VIEW_PADDING;
+        
+        updatePageGuide(); 
+        applyViewportTransform();
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
