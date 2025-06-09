@@ -34,7 +34,7 @@
     }
     #page-guide-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
     #container { position: relative; width: 100%; height: 100%; z-index: 10; }
-    #svg-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+    #svg-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
     #svg-container g.connection-group { pointer-events: all; }
 
     .node {
@@ -78,24 +78,44 @@
       box-shadow: 0 4px 6px rgba(0,0,0,0.1); visibility: hidden; z-index: 1010;
       padding: 0.5rem;
     }
-    .toolbar-row { display: flex; align-items: center; gap: 0.3rem; width: 100%; }
-    .toolbar-label { font-size: 0.75rem; color: #6b7280; margin-right: 0.25rem; white-space: nowrap; }
-    #toolbar button, #toolbar select, #toolbar input, #multiSelectToolbar button, #multiSelectToolbar select, #multiSelectToolbar input, #connection-toolbar button, #connection-toolbar input {
+    .toolbar-row, .context-menu-row { display: flex; align-items: center; gap: 0.3rem; width: 100%; padding: 0 0.25rem;}
+    .toolbar-label, .context-menu-label { font-size: 0.75rem; color: #6b7280; margin-right: 0.25rem; white-space: nowrap; }
+    #toolbar button, #toolbar select, #toolbar input, #multiSelectToolbar button, #multiSelectToolbar select, #multiSelectToolbar input, #connection-toolbar button, #connection-toolbar input, #group-context-menu button, #group-context-menu select, #group-context-menu input {
         margin: 0; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc;
         background: #fff; cursor: pointer; display: inline-flex;
         align-items: center; justify-content: center; box-sizing: border-box;
     }
-    #toolbar button:hover, #toolbar select:hover, #multiSelectToolbar button:hover, #multiSelectToolbar select:hover, #connection-toolbar button:hover, #connection-toolbar input:hover { background-color: #f3f4f6; }
-    #toolbar button, #connection-toolbar button { width: 32px; padding: 0; }
+    #toolbar button:hover, #toolbar select:hover, #multiSelectToolbar button:hover, #multiSelectToolbar select:hover, #connection-toolbar button:hover, #connection-toolbar input:hover, #group-context-menu button:hover, #group-context-menu select:hover, #group-context-menu input:hover { background-color: #f3f4f6; }
+    #toolbar button, #connection-toolbar button, #group-context-menu button { width: 32px; padding: 0; }
     #toolbar button > svg { width: 1em; height: 1em; }
-    #toolbar select { padding: 0 0.5rem; }
-    #toolbar input[type="color"], #multiSelectToolbar input[type="color"], #connection-toolbar input[type="color"] { width: 32px; padding: 2px; }
+    #toolbar select, #group-context-menu select { padding: 0 0.5rem; }
+    #toolbar input[type="color"], #multiSelectToolbar input[type="color"], #connection-toolbar input[type="color"], #group-context-menu input[type="color"] { width: 32px; padding: 2px; }
     #toolbar input[type="number"], #multiSelectToolbar input[type="number"], #connection-toolbar input[type="number"] { width: 50px; padding: 0.3rem; text-align: center; }
-    #toolbar .separator, #connection-toolbar .separator { width: 1px; height: 20px; background-color: #e5e7eb; margin: 0 0.4rem; }
-    #toolbar .palette, #multiSelectToolbar .palette, #connection-toolbar .palette { display: flex; align-items: center; gap: 0.2rem; }
+    #toolbar .separator, #connection-toolbar .separator, #group-context-menu .separator { width: 1px; height: 20px; background-color: #e5e7eb; margin: 0 0.4rem; }
+    #toolbar .palette, #multiSelectToolbar .palette, #connection-toolbar .palette, #group-context-menu .palette { display: flex; align-items: center; gap: 0.2rem; }
     .color-swatch { width: 20px; height: 20px; border: 1px solid #ccc; cursor: pointer; border-radius: 9999px; }
     .drag-handle { cursor: move; user-select: none; }
     /* Toolbar Styles End */
+
+    #group-context-menu {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+      width: 260px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      z-index: 1012;
+      padding: 0.5rem;
+    }
+    #group-context-menu.hidden {
+        display: none;
+    }
+    #group-context-menu .context-menu-row { gap: 0.5rem; }
+    #group-context-menu hr { width: 95%; margin: 0.25rem auto; border: none; border-top: 1px solid #e5e7eb; }
 
     .node-ellipse { border-radius: 50% !important; }
     .node-rounded-xl { border-radius: 1.5rem !important; }
@@ -107,7 +127,7 @@
         border-radius: 12px;
         background-color: var(--color-group-bg);
         pointer-events: all; z-index: 9;
-        transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, box-shadow 0.2s, left 0.05s linear, top 0.05s linear;
+        transition: background-color 0.2s, border-color 0.2s, border-style 0.2s, border-width 0.2s, box-shadow 0.2s, left 0.05s linear, top 0.05s linear;
     }
     .group-container.style-target { border-color: var(--color-primary-accent); }
     .group-container.dragging { cursor: grabbing; transition: none; }
@@ -148,7 +168,7 @@
     #modal-close-btn:hover { background-color: color-mix(in srgb, var(--color-primary-accent) 85%, black); }
 
     @media print {
-      body > #main-content-area > div:first-child, body > #main-content-area > #toolbar, body > #toolbar, body > #simpleModal, body #page-guide-container, #modal-overlay, #multiSelectToolbar, #connection-toolbar { display: none !important; }
+      body > #main-content-area > div:first-child, body > #main-content-area > #toolbar, body > #toolbar, body > #simpleModal, body #page-guide-container, #modal-overlay, #multiSelectToolbar, #connection-toolbar, #group-context-menu { display: none !important; }
       body > #main-content-area { margin-left: 0 !important; width: 100% !important; height: 100% !important; }
       #canvas { flex-grow: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; position: absolute !important; top: 0 !important; left: 0 !important; background-color: #ffffff !important; margin-left: 0 !important; scroll-padding-top: 0 !important; }
       #panZoomContainer { transform-origin: 0 0 !important; }
@@ -353,11 +373,38 @@
       </div>
   </div>
 
-  <div id="group-context-menu" class="hidden absolute z-[1012] bg-white shadow-lg rounded-md border border-gray-300">
-      <div id="group-context-header" class="drag-handle text-center bg-gray-50 rounded-t-md -mb-1" title="Arrastar">
+  <div id="group-context-menu" class="hidden">
+      <div id="group-context-header" class="drag-handle text-center bg-gray-50 rounded-t-md -mb-1 py-1" title="Arrastar">
         <span style="font-size: 10px; color: #9ca3af;">⠿</span>
       </div>
-      <button id="context-ungroup-btn" class="menu-item-button !w-auto !py-1.5 !px-3 !inline-flex !items-center !gap-2 !border-none">🖐️ Desagrupar</button>
+      <div class="context-menu-row">
+          <span class="context-menu-label">Fundo:</span>
+          <div class="palette">
+            <div class="color-swatch" style="background:#EFF6FF" data-color="#EFF6FF" title="Azul Claro"></div>
+            <div class="color-swatch" style="background:#FEFCE8" data-color="#FEFCE8" title="Amarelo Claro"></div>
+            <div class="color-swatch" style="background:#F0FDF4" data-color="#F0FDF4" title="Verde Claro"></div>
+          </div>
+          <input type="color" data-group-style="backgroundColor" title="Cor do Fundo">
+          <button data-group-style="transparent" title="Fundo Transparente">👻</button>
+      </div>
+      <hr />
+      <div class="context-menu-row">
+        <span class="context-menu-label">Borda:</span>
+        <div class="palette">
+          <div class="color-swatch" style="background:#a5b4fc" data-color="#a5b4fc" title="Índigo Claro"></div>
+          <div class="color-swatch" style="background:#F59E0B" data-color="#F59E0B" title="Âmbar"></div>
+           <div class="color-swatch" style="background:#9ca3af" data-color="#9ca3af" title="Cinza"></div>
+        </div>
+        <input type="color" data-group-style="borderColor" title="Cor da Borda">
+        <select data-group-style="borderStyle" title="Estilo da Borda" class="!w-auto flex-grow">
+            <option value="dashed">Tracejada</option>
+            <option value="solid">Sólida</option>
+            <option value="dotted">Pontilhada</option>
+            <option value="none">Sem Borda</option>
+        </select>
+      </div>
+      <hr />
+      <button id="context-ungroup-btn" class="menu-item-button !h-auto !py-1.5 !w-full !justify-center !inline-flex !items-center !gap-2 !border !border-gray-200">🖐️ Desagrupar</button>
   </div>
     
   <div id="connection-toolbar">
@@ -510,6 +557,13 @@
     let originalViewportBeforePrint = null;
 
     // --- Utility Functions ---
+    function rgbToHex(rgb) {
+        if (!rgb || rgb === 'transparent' || !rgb.startsWith('rgb')) return '#000000';
+        const match = rgb.match(/\d+/g);
+        if (!match) return '#000000';
+        const [r, g, b] = match.map(Number);
+        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+    };
     function hexToRgba(hex, alpha) {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         if (!result) return `rgba(0,0,0,${alpha})`;
@@ -726,11 +780,7 @@
         if (!node) return;
         const styles = window.getComputedStyle(node);
         const contentStyles = window.getComputedStyle(node.querySelector('.content'));
-        const rgbToHex = (rgb) => {
-            if (!rgb || !rgb.startsWith('rgb')) return '#000000';
-            const [r, g, b] = rgb.match(/\d+/g).map(Number);
-            return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
-        };
+        
         toolbar.querySelector('input[data-style="borderWidth"]').value = parseInt(styles.borderWidth, 10) || 0;
         toolbar.querySelector('input[data-style="borderColor"]').value = rgbToHex(styles.borderColor);
         toolbar.querySelector('input[data-style="backgroundColor"]').value = rgbToHex(styles.backgroundColor);
@@ -1239,6 +1289,57 @@
     }
 
     // --- Event Handlers: Mouse, Keyboard, General ---
+    
+    // --- Group Context Menu Logic ---
+    function hideGroupContextMenu() { groupContextMenu.classList.add('hidden'); }
+    
+    function updateGroupContextMenuState(group) {
+        if (!group) return;
+        const styles = window.getComputedStyle(group);
+        groupContextMenu.querySelector('[data-group-style="backgroundColor"]').value = rgbToHex(styles.backgroundColor);
+        groupContextMenu.querySelector('[data-group-style="borderColor"]').value = rgbToHex(styles.borderColor);
+        groupContextMenu.querySelector('[data-group-style="borderStyle"]').value = styles.borderStyle;
+    }
+    
+    function applyGroupStyle(styleKey, value) {
+        const groupId = groupContextMenu.dataset.targetGroupId;
+        if (!groupId) return;
+        const group = document.getElementById(groupId);
+        if (!group) return;
+
+        let oldValue;
+        const isTransparentToggle = styleKey === 'transparent';
+
+        if (isTransparentToggle) {
+             oldValue = group.style.backgroundColor;
+        } else {
+            oldValue = group.style[styleKey];
+        }
+
+        const changes = [{ 
+            groupId, 
+            style: isTransparentToggle ? 'backgroundColor' : styleKey, 
+            oldValue, 
+            newValue: isTransparentToggle ? 'transparent' : value
+        }];
+
+        if (isTransparentToggle) {
+            if (group.style.backgroundColor === 'transparent') {
+                const restoredColor = group.dataset.oldBg || themeColors.groupBg;
+                changes[0].newValue = restoredColor;
+                group.style.backgroundColor = restoredColor;
+            } else {
+                group.dataset.oldBg = group.style.backgroundColor;
+                group.style.backgroundColor = 'transparent';
+            }
+        } else {
+            group.style[styleKey] = value;
+        }
+
+        recordAction({ type: 'changeGroupStyles', changes });
+    }
+
+
     function handleGroupDblClick(e) {
         const group = e.target.closest('.group-container');
         if (group) {
@@ -1249,11 +1350,8 @@
             groupContextMenu.style.top = `${e.clientY + 5}px`;
             groupContextMenu.classList.remove('hidden');
             groupContextMenu.dataset.targetGroupId = group.id;
+            updateGroupContextMenuState(group);
         }
-    }
-
-    function hideGroupContextMenu() {
-        groupContextMenu.classList.add('hidden');
     }
 
     container.addEventListener('dblclick', handleGroupDblClick);
@@ -1262,10 +1360,34 @@
         if (targetGroupId) {
             selectedItems.clear();
             selectedItems.add(targetGroupId);
+            updateSelectionVisuals();
             handleUngroup();
         }
         hideGroupContextMenu();
     });
+    groupContextMenu.addEventListener('change', (e) => {
+        const styleKey = e.target.dataset.groupStyle;
+        if (styleKey) {
+            applyGroupStyle(styleKey, e.target.value);
+        }
+    });
+    groupContextMenu.addEventListener('click', (e) => {
+        const button = e.target.closest('button');
+        if (button && button.dataset.groupStyle === 'transparent') {
+            applyGroupStyle('transparent', null);
+        }
+        
+        const swatch = e.target.closest('.color-swatch');
+        if (swatch) {
+            const color = swatch.dataset.color;
+            const parentRow = swatch.closest('.context-menu-row');
+            const colorInput = parentRow.querySelector('input[type=color]');
+            const styleKey = colorInput.dataset.groupStyle;
+            colorInput.value = color;
+            applyGroupStyle(styleKey, color);
+        }
+    });
+
 
 
     function handleNodeDblClick(e) { 
@@ -1312,7 +1434,7 @@
         }, 100);
     }
 
-    function handleInteractionEnd(e) { if (isPanning) { isPanning = false; canvasEl.style.cursor = 'default'; return; } let actionRecorded = false; if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const exists = connections.some(c => (c.from === from.id && c.to === to.id) || (c.from === to.id && c.to === from.id)); if (!exists) { const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
+    function handleInteractionEnd(e) { if (isPanning) { isPanning = false; canvasEl.style.cursor = 'default'; return; } let actionRecorded = false; if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
 
     // --- Initial Event Listener Setup ---
     window.addEventListener('beforeprint', setupForPrint);
@@ -1329,7 +1451,7 @@
             hideGroupContextMenu();
         }
 
-        if (multiSelectToolbar.contains(e.target) || connectionToolbar.contains(e.target)) {
+        if (multiSelectToolbar.contains(e.target) || connectionToolbar.contains(e.target) || groupContextMenu.contains(e.target)) {
             return;
         }
         if (editingNode && !toolbar.contains(e.target) && !editingNode.contains(e.target)) {
@@ -1511,6 +1633,7 @@
             case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.oldValue); } }); needsRedraw = true; break;
             case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', change.oldStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', change.oldStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', parseInt(change.oldStyles.borderWidth) || 0); applyStyleToSingleNode(node, 'shape', change.oldStyles.shape); } }); needsRedraw = true; break;
             case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = change.oldStyles.color; conn.width = change.oldStyles.width; } }); needsRedraw = true; break;
+            case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.oldValue; } }); break;
             
             case 'group':
                 const groupToUndo = document.getElementById(action.groupId);
@@ -1585,6 +1708,7 @@
             case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.newValue); } }); needsRedraw = true; break;
             case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', action.newStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', action.newStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', action.newStyles.borderWidth); applyStyleToSingleNode(node, 'shape', action.newStyles.shape); } }); needsRedraw = true; break;
             case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = action.newStyles.color; conn.width = action.newStyles.width; } }); needsRedraw = true; break;
+            case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.newValue; } }); break;
             
             case 'group':
                 const groupContainer = document.createElement('div');
