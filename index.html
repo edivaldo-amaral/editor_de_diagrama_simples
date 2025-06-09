@@ -33,10 +33,12 @@
       transform-origin: 0 0; transition: transform 0.15s ease-out;
     }
     #page-guide-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
-    #container { position: relative; width: 100%; height: 100%; z-index: 10; }
+    /* CORREÇÃO: Adicionado pointer-events: none para permitir cliques nas camadas inferiores */
+    #container { position: relative; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
     #svg-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
     #svg-container g.connection-group { pointer-events: all; }
 
+    /* CORREÇÃO: Adicionado pointer-events: all para que os nós continuem clicáveis */
     .node {
       padding: 0.5rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.5rem;
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -44,6 +46,7 @@
       display: flex; align-items: center; justify-content: center;
       overflow-wrap: break-word; word-wrap: break-word; hyphens: auto;
       transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, border-radius 0.3s, box-shadow 0.2s, transform 0.2s;
+      pointer-events: all; /* Adicionado */
     }
     .node .content { outline: none; width: 100%; min-height: 1.2em; pointer-events: none; text-align: center; transition: font-size: 0.2s; }
     /* Correção: Trocado margin-left por padding-left para exibir o marcador da lista */
@@ -193,6 +196,18 @@
                     <label for="loadDiagramInput" class="menu-item-button" title="Carregar Diagrama">📂 Carregar</label>
                     <input type="file" id="loadDiagramInput" accept=".json,application/json" style="display: none;">
                     <button id="printToPDFBtn" title="Imprimir para PDF" class="menu-item-button">🖨️ Imprimir PDF</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Layout<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div id="layout-menu" class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[220px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
+                <div class="py-1">
+                    <button data-layout="hierarchical-tb" class="menu-item-button !py-2">Hierárquico (Vertical)</button>
+                    <button data-layout="hierarchical-lr" class="menu-item-button !py-2">Hierárquico (Horizontal)</button>
+                    <hr class="my-1 border-gray-200">
+                    <button data-layout="force" class="menu-item-button !py-2">✨ Força-Dirigida</button>
                 </div>
             </div>
         </div>
@@ -555,6 +570,7 @@
     let globalNodeBorderWidth = 1;
     let globalNodeShape = 'rectangle';
     let originalViewportBeforePrint = null;
+    let isLayoutRunning = false;
 
     // --- Utility Functions ---
     function rgbToHex(rgb) {
@@ -1434,7 +1450,14 @@
         }, 100);
     }
 
-    function handleInteractionEnd(e) { if (isPanning) { isPanning = false; canvasEl.style.cursor = 'default'; return; } let actionRecorded = false; if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
+    function handleInteractionEnd(e) { 
+        if (isPanning) { 
+            isPanning = false; 
+            canvasEl.style.cursor = 'default'; 
+            return; 
+        } 
+        let actionRecorded = false; 
+        if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
 
     // --- Initial Event Listener Setup ---
     window.addEventListener('beforeprint', setupForPrint);
@@ -1447,6 +1470,16 @@
     zoomResetBtnManual.addEventListener('click', resetZoomTo100);
 
     document.addEventListener('mousedown', e => {
+        // ALTERAÇÃO: Adicionada lógica de Pan com o botão do meio do mouse.
+        if (e.button === 1) { // Botão do meio
+            isPanning = true;
+            lastPanPosition = { x: e.clientX, y: e.clientY };
+            canvasEl.style.cursor = 'grabbing';
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+
         if (!groupContextMenu.classList.contains('hidden') && !groupContextMenu.contains(e.target)) {
             hideGroupContextMenu();
         }
@@ -1479,12 +1512,7 @@
         const clickedItem = e.target.closest('.node, .group-container');
         let isEditableContentClick = editingNode?.querySelector('.content')?.contains(e.target);
         if (isEditableContentClick) {
-            if (e.shiftKey && e.button === 0) {
-                isPanning = true;
-                lastPanPosition = { x: e.clientX, y: e.clientY };
-                canvasEl.style.cursor = 'grabbing';
-                e.preventDefault();
-            }
+            // ALTERAÇÃO: Removida a antiga lógica de Pan com Shift+Click, que era pouco intuitiva.
             return;
         }
         actionState.startX = e.clientX; actionState.startY = e.clientY; actionState.isCtrl = e.ctrlKey || e.metaKey; actionState.moved = false;
@@ -1615,15 +1643,198 @@
         }
     });
 
+    // --- Auto-layout Feature ---
+    function getNodesForLayout() {
+         const nodeElements = selectedItems.size > 0 
+            ? Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node') && !el.classList.contains('in-group'))
+            : Array.from(document.querySelectorAll('.node:not(.in-group)'));
+        return nodeElements;
+    }
+
+    function applyLayout(type) {
+        if (isLayoutRunning) return;
+
+        const nodeElements = getNodesForLayout();
+        if (nodeElements.length < 2) {
+            showModal("Selecione pelo menos dois nós para organizar.");
+            return;
+        }
+
+        const initialPositions = nodeElements.map(el => ({ nodeId: el.id, oldLeft: el.style.left, oldTop: el.style.top }));
+
+        if (type === 'force') {
+            runForceDirectedLayout(nodeElements, initialPositions);
+            return;
+        }
+
+        let newPositions;
+        switch (type) {
+            case 'hierarchical-tb': newPositions = calculateHierarchicalLayout(nodeElements, 'vertical'); break;
+            case 'hierarchical-lr': newPositions = calculateHierarchicalLayout(nodeElements, 'horizontal'); break;
+        }
+
+        if (newPositions) {
+            newPositions.forEach(pos => {
+                pos.el.style.left = `${pos.x}px`;
+                pos.el.style.top = `${pos.y}px`;
+            });
+
+            const finalChanges = initialPositions.map(p => ({ ...p, newLeft: document.getElementById(p.nodeId).style.left, newTop: document.getElementById(p.nodeId).style.top }));
+            if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges });
+            drawLines();
+        }
+    }
+
+    function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
+        const positions = [];
+        const nodeMap = new Map(nodeElements.map(el => [el.id, { el, children: [], parents: [], level: -1 }]));
+        const nodeIds = new Set(nodeElements.map(el => el.id));
+
+        connections.forEach(conn => {
+            if (nodeIds.has(conn.from) && nodeIds.has(conn.to)) {
+                nodeMap.get(conn.from).children.push(nodeMap.get(conn.to));
+                nodeMap.get(conn.to).parents.push(nodeMap.get(conn.from));
+            }
+        });
+
+        const roots = Array.from(nodeMap.values()).filter(n => n.parents.length === 0);
+        if (roots.length === 0 && nodeElements.length > 0) roots.push(nodeMap.get(nodeElements[0].id));
+
+        const levels = [];
+        let queue = roots.map(r => { r.level = 0; return r; });
+        const visited = new Set(roots);
+
+        while(queue.length > 0) {
+            const node = queue.shift();
+            if (!levels[node.level]) levels[node.level] = [];
+            levels[node.level].push(node);
+            
+            node.children.forEach(child => {
+                if (!visited.has(child)) {
+                    visited.add(child);
+                    child.level = node.level + 1;
+                    queue.push(child);
+                }
+            });
+        }
+        
+        const verticalSpacing = 150, horizontalSpacing = 200;
+        const startPos = { x: nodeElements[0]?.offsetLeft || 0, y: nodeElements[0]?.offsetTop || 0 };
+
+        if (orientation === 'vertical') {
+            const maxWidth = Math.max(...levels.map(l => l.length)) * horizontalSpacing;
+            levels.forEach((levelNodes, level) => {
+                const levelWidth = levelNodes.length * horizontalSpacing;
+                let currentX = startPos.x + (maxWidth - levelWidth) / 2;
+                levelNodes.forEach((node, i) => {
+                    positions.push({ el: node.el, x: currentX, y: startPos.y + level * verticalSpacing });
+                    currentX += horizontalSpacing;
+                });
+            });
+        } else { // Horizontal
+            const maxHeight = Math.max(...levels.map(l => l.length)) * verticalSpacing;
+            levels.forEach((levelNodes, level) => {
+                const levelHeight = levelNodes.length * verticalSpacing;
+                let currentY = startPos.y + (maxHeight - levelHeight) / 2;
+                levelNodes.forEach((node, i) => {
+                    positions.push({ el: node.el, x: startPos.x + level * horizontalSpacing, y: currentY });
+                    currentY += verticalSpacing;
+                });
+            });
+        }
+        return positions;
+    }
+
+
+    function runForceDirectedLayout(nodeElements, initialPositions) {
+        if (isLayoutRunning) return;
+        isLayoutRunning = true;
+        const layoutMenu = document.getElementById('layout-menu');
+        layoutMenu.querySelectorAll('button').forEach(b => b.disabled = true);
+        layoutMenu.querySelector('[data-layout="force"]').innerHTML = '⏳';
+
+        const nodes = nodeElements.map(el => ({
+            id: el.id, el,
+            x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + el.offsetHeight / 2,
+            vx: 0, vy: 0
+        }));
+        
+        const nodeMap = new Map(nodes.map(n => [n.id, n]));
+        const relevantConnections = connections.filter(c => nodeMap.has(c.from) && nodeMap.has(c.to));
+        
+        const repulsionStrength = 20000, attractionStrength = 0.04, idealDistance = 220, damping = 0.95;
+        let iterations = 150;
+
+        function simulationStep() {
+            if (iterations-- <= 0) {
+                isLayoutRunning = false;
+                layoutMenu.querySelectorAll('button').forEach(b => b.disabled = false);
+                layoutMenu.querySelector('[data-layout="force"]').innerHTML = '✨ Força-Dirigida';
+                const finalChanges = initialPositions.map(p => ({ ...p, newLeft: document.getElementById(p.nodeId).style.left, newTop: document.getElementById(p.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop);
+                if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges });
+                
+                // ALTERAÇÃO: Ajusta a visualização para enquadrar todo o conteúdo ao final da animação.
+                fitToContent();
+
+                return;
+            }
+
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const nodeA = nodes[i], nodeB = nodes[j];
+                    const dx = nodeA.x - nodeB.x, dy = nodeA.y - nodeB.y;
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq > 1) {
+                        const dist = Math.sqrt(distSq);
+                        const force = repulsionStrength / distSq;
+                        const fx = (dx / dist) * force, fy = (dy / dist) * force;
+                        nodeA.vx += fx; nodeA.vy += fy;
+                        nodeB.vx -= fx; nodeB.vy -= fy;
+                    }
+                }
+            }
+
+            for (const conn of relevantConnections) {
+                const nodeA = nodeMap.get(conn.from), nodeB = nodeMap.get(conn.to);
+                if (nodeA && nodeB) {
+                    const dx = nodeB.x - nodeA.x, dy = nodeB.y - nodeA.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    const displacement = dist - idealDistance;
+                    const force = attractionStrength * displacement;
+                    const fx = (dx / dist) * force, fy = (dy / dist) * force;
+                    nodeA.vx += fx; nodeA.vy += fy;
+                    nodeB.vx -= fx; nodeB.vy -= fy;
+                }
+            }
+            
+            for (const node of nodes) {
+                node.vx *= damping; node.vy *= damping;
+                node.x += node.vx; node.y += node.vy;
+                node.el.style.left = `${node.x - node.el.offsetWidth / 2}px`;
+                node.el.style.top = `${node.y - node.el.offsetHeight / 2}px`;
+            }
+
+            drawLines();
+            requestAnimationFrame(simulationStep);
+        }
+        requestAnimationFrame(simulationStep);
+    }
+    document.getElementById('layout-menu').addEventListener('click', (e) => {
+        const button = e.target.closest('button[data-layout]');
+        if (button) {
+            applyLayout(button.dataset.layout);
+            button.closest('.dropdown-panel').classList.add('hidden');
+        }
+    });
 
     // --- Undo/Redo Handlers ---
     function handleUndo() {
-        if (undoStack.length === 0) return;
+        if (isLayoutRunning || undoStack.length === 0) return;
         const action = undoStack.pop();
         let needsRedraw = false;
         switch (action.type) {
             case 'createNode': document.getElementById(action.nodeId)?.remove(); connections = connections.filter(c => c.from !== action.nodeId && c.to !== action.nodeId); needsRedraw = true; break;
-            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === cData.to)) { connections.push(cData); } }); needsRedraw = true; break;
+            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break;
             case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break;
             case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.oldWidth; nResize.style.height = action.oldHeight; } needsRedraw = true; break;
             case 'createConnection': connections.pop(); needsRedraw = true; break;
@@ -1694,7 +1905,7 @@
     }
 
     function handleRedo() {
-        if (redoStack.length === 0) return;
+        if (isLayoutRunning || redoStack.length === 0) return;
         const action = redoStack.pop();
         let needsRedraw = false;
         switch (action.type) {
