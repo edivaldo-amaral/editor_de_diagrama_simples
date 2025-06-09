@@ -3,12 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Editor de diagramas simples</title>
+  <title>Editor Interativo com Grupos - Versão Final</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  
+
   <style id="dynamic-print-style"></style>
 
   <style>
+    /* Variaveis de CSS para o tema de cores. Serão preenchidas via JS */
+    :root {
+      --color-primary-accent: #3b82f6;
+      --color-selection: #3b82f6;
+      --color-connection: #60a5fa;
+      --color-group-border: #a5b4fc;
+      --color-group-bg: rgba(165, 180, 252, 0.05);
+      --color-node-border-editing: #3b82f6;
+    }
+
     body {
       display: flex; flex-direction: column; height: 100vh; width: 100vw;
       margin: 0; padding: 0; overflow: hidden; background-color: #f9fafb;
@@ -36,68 +46,109 @@
       transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, border-radius 0.3s, box-shadow 0.2s, transform 0.2s;
     }
     .node .content { outline: none; width: 100%; min-height: 1.2em; pointer-events: none; text-align: center; transition: font-size: 0.2s; }
-    .node .content ul { text-align: left; margin-left: 1.5em; padding-left:0; list-style-position: outside; }
+    /* Correção: Trocado margin-left por padding-left para exibir o marcador da lista */
+    .node .content ul { text-align: left; list-style-position: outside; padding-left: 1.5em; margin-left: 0; }
     .node .content li { margin-bottom: 0.2em; }
     .node .content b, .node .content strong { font-weight: bold; }
     .node .content i, .node .content em { font-style: italic; }
     .node.editing .content { pointer-events: auto; user-select: text; }
     .node.dragging { cursor: grabbing; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); z-index: 1000; }
-    .node.editing, .node.style-target { cursor: default; border-color: #3b82f6; }
-    .node.selected, .group-container.selected { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.6); }
+    .node.editing, .node.style-target { cursor: default; border-color: var(--color-node-border-editing); }
+    .node.selected, .group-container.selected {
+        border-color: var(--color-selection);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-selection) 60%, transparent);
+    }
     .node:not(.in-group):hover .connector, .node:not(.in-group):hover .resize-handle { opacity: 1; transition: opacity 0.2s; }
-    
+
     .connector, .resize-handle { opacity: 0; z-index: 5; pointer-events: all; transition: opacity 0.2s ease; }
     .node.in-group .connector, .node.in-group .resize-handle { opacity: 0 !important; pointer-events: none !important; }
 
-    .connector { width: 12px; height: 12px; background: #3b82f6; border: 2px solid white; border-radius: 9999px; position: absolute; cursor: crosshair; box-shadow: 0 0 0 1px rgba(0,0,0,0.1); }
+    .connector { width: 12px; height: 12px; background: var(--color-primary-accent); border: 2px solid white; border-radius: 9999px; position: absolute; cursor: crosshair; box-shadow: 0 0 0 1px rgba(0,0,0,0.1); }
     .connector.top { top: -7px; left: 50%; transform: translateX(-50%); }
     .connector.bottom { bottom: -7px; left: 50%; transform: translateX(-50%); }
     .connector.left { left: -7px; top: 50%; transform: translateY(-50%); }
     .connector.right { right: -7px; top: 50%; transform: translateY(-50%); }
     .resize-handle { width: 14px; height: 14px; background: #6b7280; border: 2px solid white; border-radius: 3px; position: absolute; right: -8px; bottom: -8px; cursor: se-resize; }
-    
-    #toolbar { position: absolute; display: flex; align-items: center; flex-wrap: wrap; background: white; border: 1px solid #ddd; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); visibility: hidden; z-index: 1010; padding: 0.5rem; }
-    #toolbar button, #toolbar select, #toolbar input, #toolbar span, #toolbar div { margin: 0.2rem; background: none; border: 1px solid transparent; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: 0.25rem; transition: background-color 0.15s, border-color 0.15s; vertical-align: middle; }
-    #toolbar div#palette { padding: 0.3rem 0; }
-    #toolbar button:hover, #toolbar select:hover { background-color: #f3f4f6; border-color: #e5e7eb; }
-    #toolbar select { padding: 0.3rem; border: 1px solid #ccc; cursor: pointer;}
-    #toolbar input[type="color"] { width: 25px; height: 25px; padding: 0; border-radius: 5px; border: 1px solid #ccc; }
-    #toolbar input[type="number"] { width: 50px; padding: 0.3rem; border: 1px solid #ccc; cursor: text; }
-    #toolbar .separator { border-left: 1px solid #ccc; margin: 0 0.5rem; height: 20px; display: inline-block;}
-    #palette { display: flex; margin-left: 0.5rem; align-items: center; }
-    .color-swatch { width: 20px; height: 20px; border: 2px solid #ccc; margin-right: 0.3rem; cursor: pointer; border-radius: 9999px; transition: transform 0.1s; }
-    .color-swatch:hover { transform: scale(1.1); }
-    #customColor { width: 22px; height: 22px; border: none; padding: 0; cursor: pointer; background: none; }
+
+    /* Toolbar Styles Start */
+    #toolbar, #connection-toolbar {
+      position: absolute; display: flex; flex-direction: column;
+      align-items: flex-start; gap: 0.3rem;
+      background: white; border: 1px solid #ddd; border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1); visibility: hidden; z-index: 1010;
+      padding: 0.5rem;
+    }
+    .toolbar-row { display: flex; align-items: center; gap: 0.3rem; width: 100%; }
+    .toolbar-label { font-size: 0.75rem; color: #6b7280; margin-right: 0.25rem; white-space: nowrap; }
+    #toolbar button, #toolbar select, #toolbar input, #multiSelectToolbar button, #multiSelectToolbar select, #multiSelectToolbar input, #connection-toolbar button, #connection-toolbar input {
+        margin: 0; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc;
+        background: #fff; cursor: pointer; display: inline-flex;
+        align-items: center; justify-content: center; box-sizing: border-box;
+    }
+    #toolbar button:hover, #toolbar select:hover, #multiSelectToolbar button:hover, #multiSelectToolbar select:hover, #connection-toolbar button:hover, #connection-toolbar input:hover { background-color: #f3f4f6; }
+    #toolbar button, #connection-toolbar button { width: 32px; padding: 0; }
+    #toolbar button > svg { width: 1em; height: 1em; }
+    #toolbar select { padding: 0 0.5rem; }
+    #toolbar input[type="color"], #multiSelectToolbar input[type="color"], #connection-toolbar input[type="color"] { width: 32px; padding: 2px; }
+    #toolbar input[type="number"], #multiSelectToolbar input[type="number"], #connection-toolbar input[type="number"] { width: 50px; padding: 0.3rem; text-align: center; }
+    #toolbar .separator, #connection-toolbar .separator { width: 1px; height: 20px; background-color: #e5e7eb; margin: 0 0.4rem; }
+    #toolbar .palette, #multiSelectToolbar .palette, #connection-toolbar .palette { display: flex; align-items: center; gap: 0.2rem; }
+    .color-swatch { width: 20px; height: 20px; border: 1px solid #ccc; cursor: pointer; border-radius: 9999px; }
+    .drag-handle { cursor: move; user-select: none; }
+    /* Toolbar Styles End */
+
     .node-ellipse { border-radius: 50% !important; }
-    
+    .node-rounded-xl { border-radius: 1.5rem !important; }
+    .node-pill { border-radius: 9999px !important; }
+
     .group-container {
         position: absolute;
-        border: 2px dashed #a5b4fc;
+        border: 2px dashed var(--color-group-border);
         border-radius: 12px;
-        background-color: rgba(165, 180, 252, 0.05);
-        pointer-events: all; 
-        z-index: 9; 
+        background-color: var(--color-group-bg);
+        pointer-events: all; z-index: 9;
         transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, box-shadow 0.2s, left 0.05s linear, top 0.05s linear;
     }
-    .group-container.style-target {
-        border-color: #3b82f6;
-    }
-    .group-container.dragging {
-      cursor: grabbing;
-      transition: none;
-    }
+    .group-container.style-target { border-color: var(--color-primary-accent); }
+    .group-container.dragging { cursor: grabbing; transition: none; }
 
     #marquee { position: absolute; border: 1px dashed #09f; background: rgba(0, 153, 255, 0.1); visibility: hidden; pointer-events: none; z-index: 2000; }
     #a4PageGuideRect { fill: white; stroke: #cccccc; vector-effect: non-scaling-stroke; stroke-width: 1; pointer-events: none; }
+
     .menu-item-button { display: block; width: 100%; text-align: left; padding: 0.5rem 1rem; font-size: 0.875rem; color: #374151; border-radius: 0.375rem; background-color: transparent; border: none; cursor: pointer; }
     .menu-item-button:hover { background-color: #e1e4eb; color: #1f2937; }
     .menu-item-button:disabled { color: #9ca3af; cursor: not-allowed; background-color: transparent; }
     .menu-icon-button { padding: 0.5rem; margin: 0.125rem; border: 1px solid #d1d5db; border-radius: 0.375rem; background-color: #f9fafb; transition: background-color 0.15s; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
-    .menu-icon-button:hover { background-color: #e5e7eb; }
+    .menu-icon-button:hover:not(:disabled) { background-color: #e5e7eb; }
+    .menu-icon-button:disabled { background-color: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
     .menu-icon-button svg { width: 1.25em; height: 1.25em; }
 
+
+    /* Modal Styles */
+    #modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0, 0, 0, 0.5); display: flex;
+      align-items: center; justify-content: center; z-index: 9999;
+      opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s;
+    }
+    #modal-overlay.visible { opacity: 1; visibility: visible; }
+    #modal-box {
+      background: white; padding: 2rem; border-radius: 0.5rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center;
+      max-width: 90%; width: 400px;
+      transform: scale(0.95); transition: transform 0.2s;
+    }
+    #modal-overlay.visible #modal-box { transform: scale(1); }
+    #modal-content { margin-bottom: 1.5rem; color: #374151; }
+    #modal-close-btn {
+      background-color: var(--color-primary-accent); color: white; border: none;
+      padding: 0.6rem 1.5rem; border-radius: 0.375rem; font-weight: 600;
+      cursor: pointer; transition: background-color 0.2s;
+    }
+    #modal-close-btn:hover { background-color: color-mix(in srgb, var(--color-primary-accent) 85%, black); }
+
     @media print {
-      body > #main-content-area > div:first-child, body > #main-content-area > #toolbar, body > #toolbar, body > #simpleModal, body #page-guide-container { display: none !important; }
+      body > #main-content-area > div:first-child, body > #main-content-area > #toolbar, body > #toolbar, body > #simpleModal, body #page-guide-container, #modal-overlay, #multiSelectToolbar, #connection-toolbar { display: none !important; }
       body > #main-content-area { margin-left: 0 !important; width: 100% !important; height: 100% !important; }
       #canvas { flex-grow: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; position: absolute !important; top: 0 !important; left: 0 !important; background-color: #ffffff !important; margin-left: 0 !important; scroll-padding-top: 0 !important; }
       #panZoomContainer { transform-origin: 0 0 !important; }
@@ -107,13 +158,13 @@
 </head>
 <body>
   <div id="main-content-area" style="width: 100%; height: 100vh; display: flex; flex-direction: column;">
-    <div class="flex justify-center w-full"> 
+    <div class="flex justify-center w-full">
       <div id="top-buttons-container" class="flex items-center flex-wrap p-2.5 bg-gray-100 shadow-md space-x-2">
         <button id="addNode" class="px-4 py-2 bg-blue-500 text-white rounded-md shadow hover:bg-blue-800 transition text-sm font-semibold" title="Novo Item">Novo Item</button>
         <button id="undoBtn" title="Desfazer (Ctrl+Z)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-gray-300 transition" disabled>↩️</button>
         <button id="redoBtn" title="Refazer (Ctrl+Y)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-gray-300 transition" disabled>↪️</button>
         <button id="deleteBtn" title="Deletar Selecionados (Delete)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-red-600 transition text-sm">🗑️</button>
-        
+
         <div class="relative inline-block text-left">
             <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Arquivo<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
             <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[160px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
@@ -125,55 +176,7 @@
                 </div>
             </div>
         </div>
-        
-        <div class="relative inline-block text-left">
-            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Organizar<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
-            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[200px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015] p-2">
-                <div class="py-1">
-                    <button id="groupBtn" title="Agrupar Itens (Ctrl+G)" class="menu-item-button">📦 Agrupar</button>
-                    <button id="ungroupBtn" title="Desagrupar Itens (Ctrl+Shift+G)" class="menu-item-button">🖐️ Desagrupar</button>
-                </div>
-                <hr class="my-2 border-gray-200">
-                <div class="grid grid-cols-3 gap-1 mb-1">
-                    <button data-align="left" title="Alinhar à Esquerda" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 3h2v14H3V3zm4 2h10V3H7v2zm0 4h7V7H7v2zm0 4h10v-2H7v2zm0 4h7v-2H7v2z"/></svg></button>
-                    <button data-align="center-h" title="Centralizar Horizontal" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9 3h2v14H9V3zM3 5h14V3H3v2zm2 4h10V7H5v2zm-2 4h14v-2H3v2zm2 4h10v-2H5v2z"/></svg></button>
-                    <button data-align="right" title="Alinhar à Direita" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M15 3h2v14h-2V3zM3 5h10V3H3v2zm3 4h7V7H6v2zm-3 4h10v-2H3v2zm3 4h7v-2H6v2z"/></svg></button>
-                </div>
-                <div class="grid grid-cols-3 gap-1">
-                    <button data-align="top" title="Alinhar Acima" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M3 3h2v14H3V3zm4 2h10V3H7v2zm0 4h7V7H7v2zm0 4h10v-2H7v2zm0 4h7v-2H7v2z"/></svg></button>
-                    <button data-align="center-v" title="Centralizar Vertical" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M9 3h2v14H9V3zM3 5h14V3H3v2zm2 4h10V7H5v2zm-2 4h14v-2H3v2zm2 4h10v-2H5v2z"/></svg></button>
-                    <button data-align="bottom" title="Alinhar Abaixo" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M15 3h2v14h-2V3zM3 5h10V3H3v2zm3 4h7V7H6v2zm-3 4h10v-2H3v2zm3 4h7v-2H6v2z"/></svg></button>
-                </div>
-                <hr class="my-2 border-gray-200">
-                <div class="grid grid-cols-2 gap-1">
-                    <button data-distribute="horizontal" title="Distribuir Horizontalmente" class="menu-icon-button text-base">↔️</button>
-                    <button data-distribute="vertical" title="Distribuir Verticalmente" class="menu-icon-button text-base">↕️</button>
-                </div>
-            </div>
-        </div>
 
-        <div class="relative inline-block text-left">
-            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Editar Globais<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
-            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[280px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015] p-3 space-y-3">
-                <h4 class="text-xs font-bold text-gray-500 uppercase">Estilos de Item</h4>
-                <div class="flex items-center justify-between"><label for="globalNodeBgColor" title="Cor de Fundo Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Fundo do Item:</label><input type="color" id="globalNodeBgColor" value="#FFFFFF" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
-                <div class="flex items-center justify-between"><label for="globalNodeBorderColor" title="Cor da Borda Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Borda do Item (Cor):</label><input type="color" id="globalNodeBorderColor" value="#E5E7EB" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
-                <div class="flex items-center justify-between"><label for="globalNodeBorderWidth" title="Largura da Borda Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Borda do Item (Larg.):</label><input type="number" id="globalNodeBorderWidth" value="1" min="0" max="15" step="1" class="w-20 text-sm p-1 border border-gray-300 rounded-md text-center"></div>
-                <div class="flex items-center justify-between"><label for="globalNodeShape" title="Forma Global do Nó" class="text-sm text-gray-700 whitespace-nowrap mr-2">Forma do Item:</label><select id="globalNodeShape" class="text-sm p-1.5 border border-gray-300 rounded-md bg-white w-auto"><option value="rectangle">Retângulo</option><option value="ellipse">Elipse</option></select></div>
-                <button id="applyGlobalsToSelected" class="w-full px-3 py-1.5 bg-indigo-500 text-white rounded-md shadow-sm hover:bg-indigo-600 transition text-xs font-semibold">Aplicar aos Itens</button>
-                <hr class="my-2">
-                <h4 class="text-xs font-bold text-gray-500 uppercase mt-2">Estilos de Linha</h4>
-                <div class="flex items-center justify-between"><label for="lineColor" title="Cor da Linha Global" class="text-sm text-gray-700 whitespace-nowrap mr-2">Cor da Linha:</label><input type="color" id="lineColor" value="#60a5fa" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
-                <div class="flex items-center justify-between"><label for="lineWidth" title="Espessura da Linha Global" class="text-sm text-gray-700 whitespace-nowrap mr-2">Espessura Linha:</label><input type="number" id="lineWidth" value="2.5" min="0.5" max="20" step="0.5" class="w-20 text-sm p-1 border border-gray-300 rounded-md text-center"></div>
-                <hr class="my-2">
-                <h4 class="text-xs font-bold text-gray-500 uppercase mt-2">Estilos de Grupo</h4>
-                <div class="flex items-center justify-between"><label for="globalGroupBgColor" title="Cor de Fundo do Grupo" class="text-sm text-gray-700 whitespace-nowrap mr-2">Fundo do Grupo:</label><input type="color" id="globalGroupBgColor" value="#a5b4fc" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
-                <div class="flex items-center justify-between"><label for="globalGroupBgOpacity" title="Opacidade do Fundo" class="text-sm text-gray-700 whitespace-nowrap mr-2">Opacidade Fundo:</label><input type="range" id="globalGroupBgOpacity" min="0" max="1" step="0.05" value="0.05" class="w-24"></div>
-                <div class="flex items-center justify-between"><label for="globalGroupBorderColor" title="Cor da Borda do Grupo" class="text-sm text-gray-700 whitespace-nowrap mr-2">Borda do Grupo:</label><input type="color" id="globalGroupBorderColor" value="#a5b4fc" class="w-7 h-7 p-0 border border-gray-300 rounded-md cursor-pointer"></div>
-                <div class="flex items-center justify-between"><label for="globalGroupBorderOpacity" title="Opacidade da Borda" class="text-sm text-gray-700 whitespace-nowrap mr-2">Opacidade Borda:</label><input type="range" id="globalGroupBorderOpacity" min="0" max="1" step="0.05" value="1" class="w-24"></div>
-                <button id="applyGlobalsToGroups" class="w-full mt-2 px-3 py-1.5 bg-purple-500 text-white rounded-md shadow-sm hover:bg-purple-600 transition text-xs font-semibold">Aplicar aos Grupos</button>
-            </div>
-        </div>
         <div class="relative inline-block text-left">
             <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Página<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
             <div id="page-menu" class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[280px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015] p-3 space-y-3">
@@ -199,40 +202,188 @@
                 <rect id="a4PageGuideRect" x="0" y="0" width="794" height="1123" />
             </svg>
         </div>
-
         <div id="container"></div>
-
         <div id="svg-container">
           <svg id="lines" width="100%" height="100%" style="overflow: visible !important;"></svg>
         </div>
-        
       </div>
     </div>
   </div>
 
   <div id="toolbar">
-      <button data-cmd="bold" title="Negrito"><b>B</b></button>
-      <button data-cmd="italic" title="Itálico"><i>I</i></button>
-      <button data-cmd="underline" title="Sublinhado"><u>U</u></button>
-      <button data-cmd="superscript" title="Sobrescrito">X<sup>2</sup></button>
-      <button data-cmd="subscript" title="Subscrito">X<sub>2</sub></button>
-      <button data-cmd="insertUnorderedList" title="Lista não Ordenada" style="padding: 0.3rem 0.4rem;">●</button>
-      <select data-cmd="fontSize" title="Tamanho da Fonte"><option value="3">Normal</option><option value="5">Grande</option><option value="2">Pequeno</option><option value="7">Enorme</option></select>
-      <span class="separator"></span>
-      <button data-textalign="left" title="Alinhar Texto à Esquerda"> L </button>
-      <button data-textalign="center" title="Centralizar Texto"> C </button>
-      <button data-textalign="right" title="Alinhar Texto à Direita"> R </button>
-      <span class="separator"></span>
-      <div id="palette" title="Cor da Fonte"><div class="color-swatch" style="background:#000000" data-color="#000000"></div><div class="color-swatch" style="background:#EF4444" data-color="#EF4444"></div><div class="color-swatch" style="background:#22C55E" data-color="#22C55E"></div></div>
-      <input type="color" id="customColor" title="Cor da Fonte Customizada"/> <span class="separator"></span>
-      <span title="Cor do Fundo"><input type="color" data-style="backgroundColor" value="#FFFFFF"></span>
-      <span title="Cor da Borda"><input type="color" data-style="borderColor" value="#E5E7EB"></span>
-      <span title="Largura Borda"><input type="number" data-style="borderWidth" min="0" max="15" value="1"></span>
-      <select data-style="shape" title="Forma"> <option value="rectangle">Retângulo</option> <option value="ellipse">Elipse</option> </select>
-      <button data-style="transparent" title="Transparente">👻</button>
+    <div id="toolbar-header" class="drag-handle w-full text-center text-gray-400 py-1" title="Arrastar painel">⠿</div>
+    <div class="toolbar-row">
+        <button data-cmd="bold" title="Negrito"><b>B</b></button>
+        <button data-cmd="italic" title="Itálico"><i>I</i></button>
+        <button data-cmd="underline" title="Sublinhado"><u>U</u></button>
+        <div class="separator"></div>
+        <button data-cmd="superscript" title="Sobrescrito">X<sup>2</sup></button>
+        <button data-cmd="subscript" title="Subscrito">X<sub>2</sub></button>
+        <div class="separator"></div>
+        <button data-cmd="removeFormat" title="Remover Formatação">T🧹</button>
+    </div>
+    <div class="toolbar-row">
+        <button data-textalign="left" title="Alinhar à Esquerda"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M2 12.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/></svg></button>
+        <button data-textalign="center" title="Centralizar"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 12.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/></svg></button>
+        <button data-textalign="right" title="Alinhar à Direita"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6 12.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-4-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm4-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-4-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/></svg></button>
+        <div class="separator"></div>
+        <button data-cmd="insertUnorderedList" title="Lista" style="font-size: 1.25em; line-height: 1; padding: 0.1rem 0.5rem;">•</button>
+    </div>
+    <div class="toolbar-row">
+        <select data-cmd="fontSize" title="Tamanho da Fonte"><option value="3">Normal</option><option value="5">Grande</option><option value="2">Pequeno</option><option value="7">Enorme</option></select>
+        <select data-style="lineHeight" title="Espaçamento entre Linhas">
+            <option value="normal">Normal</option>
+            <option value="1">Simples</option>
+            <option value="1.5">1.5</option>
+            <option value="2">Duplo</option>
+        </select>
+    </div>
+    <div class="toolbar-row">
+        <span class="toolbar-label">Texto:</span>
+        <div id="palette-text" class="palette">
+          <div class="color-swatch" style="background:#000000" data-color="#000000" title="Preto"></div>
+          <div class="color-swatch" style="background:#1A4F63" data-color="#1A4F63" title="Azul Escuro"></div>
+          <div class="color-swatch" style="background:#068587" data-color="#068587" title="Verde Água"></div>
+          <div class="color-swatch" style="background:#6FB07F" data-color="#6FB07F" title="Verde"></div>
+          <div class="color-swatch" style="background:#FCB03C" data-color="#FCB03C" title="Laranja"></div>
+          <div class="color-swatch" style="background:#FC5B3F" data-color="#FC5B3F" title="Vermelho Alaranjado"></div>
+        </div>
+        <input type="color" id="customColor" title="Cor da Fonte Customizada"/>
+    </div>
+    <div class="toolbar-row">
+        <span class="toolbar-label">Fundo:</span>
+        <div id="palette-bg" class="palette">
+          <div class="color-swatch" style="background:#FFFFFF" data-color="#FFFFFF" title="Branco"></div>
+          <div class="color-swatch" style="background:#EFF6FF" data-color="#EFF6FF" title="Azul Claro"></div>
+          <div class="color-swatch" style="background:#FEFCE8" data-color="#FEFCE8" title="Amarelo Claro"></div>
+          <div class="color-swatch" style="background:#F0FDF4" data-color="#F0FDF4" title="Verde Claro"></div>
+          <div class="color-swatch" style="background:#FFFBEB" data-color="#FFFBEB" title="Âmbar Claro"></div>
+          <div class="color-swatch" style="background:#FFF1F2" data-color="#FFF1F2" title="Rosa Claro"></div>
+        </div>
+        <input type="color" data-style="backgroundColor" value="#FFFFFF" title="Cor do Fundo">
+        <div class="separator"></div>
+        <button data-style="transparent" title="Fundo Transparente">👻</button>
+    </div>
+    <div class="toolbar-row">
+        <span class="toolbar-label">Borda:</span>
+        <div id="palette-border" class="palette">
+          <div class="color-swatch" style="background:#E5E7EB" data-color="#E5E7EB" title="Cinza"></div>
+          <div class="color-swatch" style="background:#3B82F6" data-color="#3B82F6" title="Azul"></div>
+          <div class="color-swatch" style="background:#F59E0B" data-color="#F59E0B" title="Âmbar"></div>
+          <div class="color-swatch" style="background:#10B981" data-color="#10B981" title="Esmeralda"></div>
+          <div class="color-swatch" style="background:#EF4444" data-color="#EF4444" title="Vermelho"></div>
+          <div class="color-swatch" style="background:#8B5CF6" data-color="#8B5CF6" title="Violeta"></div>
+        </div>
+        <input type="color" data-style="borderColor" value="#E5E7EB" title="Cor da Borda">
+        <input type="number" data-style="borderWidth" min="0" max="15" value="1" title="Largura da Borda">
+    </div>
+     <div class="toolbar-row">
+        <span class="toolbar-label">Forma:</span>
+        <select data-style="shape" title="Forma">
+            <option value="rectangle">Retângulo</option>
+            <option value="ellipse">Elipse</option>
+            <option value="rounded-xl">Arredondado</option>
+            <option value="pill">Pílula</option>
+        </select>
+    </div>
+  </div>
+
+  <div id="multiSelectToolbar" class="p-3 bg-white shadow-lg rounded-lg border border-gray-300" style="position: absolute; visibility: hidden; z-index: 1011; display: flex; flex-direction: column; gap: 0.75rem; width: 280px;">
+      <div id="multi-select-toolbar-header" class="drag-handle w-full text-center text-gray-400 -mt-1 -mx-3 mb-1 py-1 bg-gray-50 rounded-t-lg border-b" title="Arrastar painel">⠿</div>
+      <div class="-mt-3">
+        <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Estilos</p>
+        <div class="space-y-3">
+          <div class="toolbar-row">
+              <span class="toolbar-label">Fundo:</span>
+              <div id="multi-palette-bg" class="palette">
+                <div class="color-swatch" style="background:#FFFFFF" data-color="#FFFFFF" title="Branco"></div>
+                <div class="color-swatch" style="background:#EFF6FF" data-color="#EFF6FF" title="Azul Claro"></div>
+                <div class="color-swatch" style="background:#FEFCE8" data-color="#FEFCE8" title="Amarelo Claro"></div>
+                <div class="color-swatch" style="background:#FFF1F2" data-color="#FFF1F2" title="Rosa Claro"></div>
+              </div>
+              <input type="color" data-multi-style="backgroundColor" value="#FFFFFF" title="Cor do Fundo">
+          </div>
+          <div class="toolbar-row">
+              <span class="toolbar-label">Borda:</span>
+              <div id="multi-palette-border" class="palette">
+                <div class="color-swatch" style="background:#E5E7EB" data-color="#E5E7EB" title="Cinza"></div>
+                <div class="color-swatch" style="background:#3B82F6" data-color="#3B82F6" title="Azul"></div>
+                <div class="color-swatch" style="background:#10B981" data-color="#10B981" title="Esmeralda"></div>
+                <div class="color-swatch" style="background:#EF4444" data-color="#EF4444" title="Vermelho"></div>
+              </div>
+              <input type="color" data-multi-style="borderColor" value="#E5E7EB" title="Cor da Borda">
+          </div>
+          <div class="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 items-center">
+              <label class="toolbar-label justify-self-start">Largura:</label>
+              <input type="number" data-multi-style="borderWidth" min="0" max="15" value="1" title="Largura da Borda" class="w-full p-1 h-auto">
+              <label class="toolbar-label justify-self-end">Forma:</label>
+              <select data-multi-style="shape" title="Forma" class="w-full p-1 h-auto">
+                  <option value="rectangle">Retângulo</option>
+                  <option value="ellipse">Elipse</option>
+                  <option value="rounded-xl">Arredondado</option>
+                  <option value="pill">Pílula</option>
+              </select>
+          </div>
+          <button id="applyBulkChanges" class="w-full mt-1 px-3 py-1.5 bg-yellow-400 text-black rounded-md shadow-sm hover:bg-yellow-500 transition text-sm font-semibold">Aplicar Estilos</button>
+        </div>
+      </div>
+
+      <hr/>
+      
+      <div>
+        <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Organizar</p>
+        <div class="space-y-2">
+            <div class="grid grid-cols-2 gap-2">
+                <button data-action="group" class="menu-item-button !h-auto !py-1.5 !w-full !justify-center !inline-flex !items-center !border !border-gray-200" title="Agrupar Itens (Ctrl+G)">📦 Agrupar</button>
+                <button data-action="ungroup" class="menu-item-button !h-auto !py-1.5 !w-full !justify-center !inline-flex !items-center !border !border-gray-200" title="Desagrupar Itens (Ctrl+Shift+G)">🖐️ Desagrupar</button>
+            </div>
+            <div class="grid grid-cols-6 gap-1">
+                <button data-align="left" title="Alinhar à Esquerda" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 3h2v14H3V3zm4 2h10V3H7v2zm0 4h7V7H7v2zm0 4h10v-2H7v2zm0 4h7v-2H7v2z"/></svg></button>
+                <button data-align="center-h" title="Centralizar Horizontal" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9 3h2v14H9V3zM3 5h14V3H3v2zm2 4h10V7H5v2zm-2 4h14v-2H3v2zm2 4h10v-2H5v2z"/></svg></button>
+                <button data-align="right" title="Alinhar à Direita" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M15 3h2v14h-2V3zM3 5h10V3H3v2zm3 4h7V7H6v2zm-3 4h10v-2H3v2zm3 4h7v-2H6v2z"/></svg></button>
+                <button data-align="top" title="Alinhar Acima" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M3 3h2v14H3V3zm4 2h10V3H7v2zm0 4h7V7H7v2zm0 4h10v-2H7v2zm0 4h7v-2H7v2z"/></svg></button>
+                <button data-align="center-v" title="Centralizar Vertical" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M9 3h2v14H9V3zM3 5h14V3H3v2zm2 4h10V7H5v2zm-2 4h14v-2H3v2zm2 4h10v-2H5v2z"/></svg></button>
+                <button data-align="bottom" title="Alinhar Abaixo" class="menu-icon-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="transform: rotate(-90deg);"><path d="M15 3h2v14h-2V3zM3 5h10V3H3v2zm3 4h7V7H6v2zm-3 4h10v-2H3v2zm3 4h7v-2H6v2z"/></svg></button>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <button data-distribute="horizontal" title="Distribuir Horizontalmente" class="menu-icon-button text-base !w-full">↔️ Distribuir</button>
+                <button data-distribute="vertical" title="Distribuir Verticalmente" class="menu-icon-button text-base !w-full">↕️ Distribuir</button>
+            </div>
+        </div>
+      </div>
+  </div>
+
+  <div id="group-context-menu" class="hidden absolute z-[1012] bg-white shadow-lg rounded-md border border-gray-300">
+      <div id="group-context-header" class="drag-handle text-center bg-gray-50 rounded-t-md -mb-1" title="Arrastar">
+        <span style="font-size: 10px; color: #9ca3af;">⠿</span>
+      </div>
+      <button id="context-ungroup-btn" class="menu-item-button !w-auto !py-1.5 !px-3 !inline-flex !items-center !gap-2 !border-none">🖐️ Desagrupar</button>
+  </div>
+    
+  <div id="connection-toolbar">
+    <div id="connection-toolbar-header" class="drag-handle w-full text-center text-gray-400 py-1" title="Arrastar painel">⠿</div>
+     <div class="toolbar-row">
+        <span class="toolbar-label">Linha:</span>
+        <div id="palette-connection" class="palette">
+          <div class="color-swatch" style="background:#60a5fa" data-color="#60a5fa" title="Azul Padrão"></div>
+          <div class="color-swatch" style="background:#34495e" data-color="#34495e" title="Cinza Escuro"></div>
+          <div class="color-swatch" style="background:#f1c40f" data-color="#f1c40f" title="Amarelo"></div>
+          <div class="color-swatch" style="background:#e74c3c" data-color="#e74c3c" title="Vermelho"></div>
+        </div>
+        <input type="color" data-conn-style="color" value="#60a5fa" title="Cor da Linha">
+        <div class="separator"></div>
+        <input type="number" data-conn-style="width" min="1" max="20" value="2.5" step="0.5" title="Largura da Linha">
+    </div>
   </div>
 
   <div id="marquee"></div>
+
+  <div id="modal-overlay">
+    <div id="modal-box">
+      <p id="modal-content">Sample message</p>
+      <button id="modal-close-btn">OK</button>
+    </div>
+  </div>
 
   <script>
     // --- Global Elements ---
@@ -242,20 +393,18 @@
     const svg = document.getElementById('lines');
     const svgContainer = document.getElementById('svg-container');
     const a4PageGuideRect = document.getElementById('a4PageGuideRect');
-    const toolbar = document.getElementById('toolbar'); 
+    const toolbar = document.getElementById('toolbar');
+    const multiSelectToolbar = document.getElementById('multiSelectToolbar');
+    const connectionToolbar = document.getElementById('connection-toolbar');
+    const applyBulkChangesBtn = document.getElementById('applyBulkChanges');
+    const groupContextMenu = document.getElementById('group-context-menu');
+    const contextUngroupBtn = document.getElementById('context-ungroup-btn');
     const marquee = document.getElementById('marquee');
-    const customColorInput = document.getElementById('customColor'); 
+    const customColorInput = document.getElementById('customColor');
     const addNodeButton = document.getElementById('addNode');
     const saveDiagramButton = document.getElementById('saveDiagram');
     const loadDiagramInput = document.getElementById('loadDiagramInput');
     const printToPDFBtn = document.getElementById('printToPDFBtn');
-    const lineColorInput = document.getElementById('lineColor');
-    const lineWidthInput = document.getElementById('lineWidth');
-    const globalNodeBgColorInput = document.getElementById('globalNodeBgColor');
-    const globalNodeBorderColorInput = document.getElementById('globalNodeBorderColor');
-    const globalNodeBorderWidthInput = document.getElementById('globalNodeBorderWidth');
-    const globalNodeShapeSelect = document.getElementById('globalNodeShape');
-    const applyGlobalsToSelectedBtn = document.getElementById('applyGlobalsToSelected');
     const undoBtn = document.getElementById('undoBtn');
     const redoBtn = document.getElementById('redoBtn');
     const fitToContentBtn = document.getElementById('fitToContentBtn');
@@ -264,9 +413,7 @@
     const zoomOutBtnManual = document.getElementById('zoomOutBtnManual');
     const zoomResetBtnManual = document.getElementById('zoomResetBtnManual');
     const zoomLevelDisplay = document.getElementById('zoomLevelDisplay');
-    const deleteBtn = document.getElementById('deleteBtn'); 
-    const groupBtn = document.getElementById('groupBtn');
-    const ungroupBtn = document.getElementById('ungroupBtn');
+    const deleteBtn = document.getElementById('deleteBtn');
     const pageSizeSelect = document.getElementById('pageSizeSelect');
     const pageOrientationSelect = document.getElementById('pageOrientationSelect');
     const customSizeInputs = document.getElementById('custom-size-inputs');
@@ -274,37 +421,72 @@
     const pageCustomHeight = document.getElementById('pageCustomHeight');
     const applyPageSettings = document.getElementById('applyPageSettings');
     const dynamicPrintStyle = document.getElementById('dynamic-print-style');
-    // New Group Style Elements
-    const globalGroupBgColorInput = document.getElementById('globalGroupBgColor');
-    const globalGroupBorderColorInput = document.getElementById('globalGroupBorderColor');
-    const globalGroupBgOpacityInput = document.getElementById('globalGroupBgOpacity');
-    const globalGroupBorderOpacityInput = document.getElementById('globalGroupBorderOpacity');
-    const applyGlobalsToGroupsBtn = document.getElementById('applyGlobalsToGroups');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalContent = document.getElementById('modal-content');
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+
+    // --- Lógica para tornar painéis arrastáveis ---
+    function makeDraggable(draggableEl, handleEl) {
+        let offsetX = 0, offsetY = 0;
+
+        handleEl.onmousedown = function (e) {
+            e.stopPropagation();
+
+            if (e.target.closest('button, input, select, .palette')) return;
+            e.preventDefault();
+            
+            offsetX = e.clientX - draggableEl.offsetLeft;
+            offsetY = e.clientY - draggableEl.offsetTop;
+
+            document.onmousemove = onMouseMove;
+            document.onmouseup = onMouseUp;
+        };
+
+        function onMouseMove(e) {
+            e.preventDefault();
+            let newLeft = e.clientX - offsetX;
+            let newTop = e.clientY - offsetY;
+
+            const elRect = draggableEl.getBoundingClientRect();
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - elRect.width));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - elRect.height));
+
+            draggableEl.style.left = newLeft + 'px';
+            draggableEl.style.top = newTop + 'px';
+        }
+
+        function onMouseUp() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        }
+    }
+
+
+    // --- Theme & Colors Configuration ---
+    const themeColors = {
+        primaryAccent: '#3b82f6',
+        selection: '#3b82f6',
+        connection: '#60a5fa',
+        connectionSelected: '#2563eb',
+        groupBorder: '#a5b4fc',
+        get groupBg() { return hexToRgba(this.groupBorder, 0.05); },
+        nodeBorderEditing: '#3b82f6'
+    };
 
     // --- Constants ---
-    const A4_WIDTH_PX = 794; 
+    const A4_WIDTH_PX = 794;
     const A4_HEIGHT_PX = 1123;
-    const PAGE_SIZES_PX = {
-        'A4': { width: 794, height: 1123 },
-        'A5': { width: 559, height: 794 },
-        'A3': { width: 1123, height: 1587 },
-        'Letter': { width: 816, height: 1056 },
-    };
-    const PAGE_SIZES_PHYSICAL = {
-        'A4': { width: '210mm', height: '297mm' },
-        'A5': { width: '148mm', height: '210mm' },
-        'A3': { width: '297mm', height: '420mm' },
-        'Letter': { width: '8.5in', height: '11in' },
-    };
+    const PAGE_SIZES_PX = { 'A4': { width: 794, height: 1123 }, 'A5': { width: 559, height: 794 }, 'A3': { width: 1123, height: 1587 }, 'Letter': { width: 816, height: 1056 }, };
+    const PAGE_SIZES_PHYSICAL = { 'A4': { width: '210mm', height: '297mm' }, 'A5': { width: '148mm', height: '210mm' }, 'A3': { width: '297mm', height: '420mm' }, 'Letter': { width: '8.5in', height: '11in' }, };
     const A4_VIEW_PADDING = 20;
-    const MIN_ZOOM_SCALE = 0.1; 
-    const MAX_ZOOM_SCALE = 5.0; 
+    const MIN_ZOOM_SCALE = 0.1;
+    const MAX_ZOOM_SCALE = 5.0;
     const DRAG_THRESHOLD = 5;
     const KEY_MOVE_STEP = 10;
     const ZOOM_BUTTON_STEP_FACTOR = 1.2;
 
     // --- State Variables ---
-    let isA4ModeActive = true; 
+    let isA4ModeActive = true;
     let viewport = { scale: 1.0, panX: 0, panY: 0 };
     let isPanning = false;
     let lastPanPosition = { x: 0, y: 0 };
@@ -319,13 +501,36 @@
     let selectedConnections = new Set();
     let actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] };
     let appClipboard = { type: null, items: [], anchor: { left: 0, top: 0 } };
-    let currentLineColor = '#60a5fa';
+    let currentLineColor = themeColors.connection;
     let currentLineStrokeWidth = 2.5;
     let globalNodeBackgroundColor = '#FFFFFF';
     let globalNodeBorderColor = '#E5E7EB';
     let globalNodeBorderWidth = 1;
     let globalNodeShape = 'rectangle';
     let originalViewportBeforePrint = null;
+
+    // --- Utility Functions ---
+    function hexToRgba(hex, alpha) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        if (!result) return `rgba(0,0,0,${alpha})`;
+        const r = parseInt(result[1], 16);
+        const g = parseInt(result[2], 16);
+        const b = parseInt(result[3], 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    // --- Modal Logic ---
+    function showModal(message) {
+        modalContent.textContent = message;
+        modalOverlay.classList.add('visible');
+    }
+    function hideModal() {
+        modalOverlay.classList.remove('visible');
+    }
+    modalCloseBtn.addEventListener('click', hideModal);
+    modalOverlay.addEventListener('click', (e) => {
+        if (e.target === modalOverlay) hideModal();
+    });
 
     // --- Menu Dropdown Logic ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -339,8 +544,23 @@
     // --- Undo/Redo & State Management ---
     function updateUndoRedoButtons() { undoBtn.disabled = undoStack.length === 0; redoBtn.disabled = redoStack.length === 0; }
     function recordAction(action, fromUndo = false, fromRedo = false) { if (!fromUndo && !fromRedo) { undoStack.push(action); redoStack = []; } else if (fromUndo) { redoStack.push(action); } else if (fromRedo) { undoStack.push(action); } updateUndoRedoButtons(); }
-    function getNodeDataForUndo(nodeEl) { const contentDiv = nodeEl.querySelector('.content'); let classes = Array.from(nodeEl.classList).filter(c => !['selected', 'dragging', 'node', 'editing'].includes(c)); return { id: nodeEl.id, text: contentDiv.innerHTML, left: nodeEl.style.left, top: nodeEl.style.top, width: nodeEl.style.width || `${nodeEl.offsetWidth}px`, height: nodeEl.style.height || `${nodeEl.offsetHeight}px`, className: classes.join(' '), inlineStyle: nodeEl.style.cssText, contentTextAlign: contentDiv.style.textAlign || 'center', }; }
-    
+    function getNodeDataForUndo(nodeEl) {
+        const contentDiv = nodeEl.querySelector('.content');
+        let classes = Array.from(nodeEl.classList).filter(c => !['selected', 'dragging', 'node', 'editing'].includes(c));
+        return {
+            id: nodeEl.id,
+            text: contentDiv.innerHTML,
+            left: nodeEl.style.left,
+            top: nodeEl.style.top,
+            width: nodeEl.style.width || `${nodeEl.offsetWidth}px`,
+            height: nodeEl.style.height || `${nodeEl.offsetHeight}px`,
+            className: classes.join(' '),
+            inlineStyle: nodeEl.style.cssText,
+            contentTextAlign: contentDiv.style.textAlign || 'center',
+            contentLineHeight: contentDiv.style.lineHeight || 'normal'
+        };
+    }
+
     // --- Viewport & Zoom ---
     function updateZoomDisplay() { if (zoomLevelDisplay) zoomLevelDisplay.textContent = `Zoom: ${Math.round(viewport.scale * 100)}%`; }
     function applyViewportTransform() { panZoomContainer.style.transform = `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`; drawLines(); updateZoomDisplay(); }
@@ -349,7 +569,7 @@
     function fitToA4PageGuide() { const currentWidth = parseFloat(a4PageGuideRect.getAttribute('width')); const currentHeight = parseFloat(a4PageGuideRect.getAttribute('height')); fitToContent({ x: 0, y: 0, width: currentWidth, height: currentHeight, isEmpty: false }); }
     function handleManualZoom(zoomIn) { const oldScale = viewport.scale; const oldPanX = viewport.panX; let newScale = zoomIn ? oldScale * ZOOM_BUTTON_STEP_FACTOR : oldScale / ZOOM_BUTTON_STEP_FACTOR; newScale = Math.max(MIN_ZOOM_SCALE, Math.min(newScale, MAX_ZOOM_SCALE)); viewport.scale = newScale; const screenCenterX = canvasEl.clientWidth / 2; const worldPointXAtScreenCenter = (screenCenterX - oldPanX) / oldScale; viewport.panX = screenCenterX - (worldPointXAtScreenCenter * newScale); const worldA4TopY = 0; viewport.panY = A4_VIEW_PADDING - (worldA4TopY * newScale); applyViewportTransform(); }
     function resetZoomTo100() {
-        isA4ModeActive = true; 
+        isA4ModeActive = true;
         viewport.scale = 1.0;
         const pageW = parseFloat(a4PageGuideRect.getAttribute('width'));
         viewport.panX = (canvasEl.clientWidth > pageW) ? (canvasEl.clientWidth / 2) - (pageW / 2) : A4_VIEW_PADDING;
@@ -359,50 +579,182 @@
 
     // --- Node & Element Creation ---
     function createNode(text = 'Novo Item', x = 150, y = 150, id = null, options = {}) { const { isUndoRedo = false, recordUndo = true } = options; if (!isUndoRedo && x === 150 && y === 150) { const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2); x = worldCenter.x - 50; y = worldCenter.y - 20; const pageW = a4PageGuideRect.getAttribute('width'); const pageH = a4PageGuideRect.getAttribute('height'); x = Math.max(20, Math.min(x, pageW - 120)); y = Math.max(20, Math.min(y, pageH - 60)); } let nodeId = id; let isNewNodeFromUser = false; if (!nodeId) { isNewNodeFromUser = !isUndoRedo; let maxId = -1; document.querySelectorAll('.node[id^="node-"]').forEach(n => { const num = parseInt(n.id.split('-')[1]); if (!isNaN(num) && num > maxId) maxId = num; }); nodeCounter = maxId + 1; nodeId = 'node-' + nodeCounter; } else { const numId = parseInt(id.split('-')[1]); if (!isNaN(numId) && numId >= nodeCounter) nodeCounter = numId + 1; } const node = document.createElement('div'); node.className = 'node'; node.id = nodeId; node.style.left = `${x}px`; node.style.top = `${y}px`; if (!id || isNewNodeFromUser) { node.style.backgroundColor = globalNodeBackgroundColor; node.style.borderColor = globalNodeBorderColor; node.style.borderRadius = ''; node.style.borderWidth = `${globalNodeBorderWidth}px`; node.style.borderStyle = parseInt(globalNodeBorderWidth) > 0 ? 'solid' : 'none'; if (globalNodeShape === 'ellipse') node.classList.add('node-ellipse'); } const content = document.createElement('div'); content.className = 'content'; content.innerHTML = text; node.appendChild(content); ['top', 'bottom', 'left', 'right'].forEach(pos => { const connector = document.createElement('div'); connector.className = 'connector ' + pos; connector.dataset.position = pos; connector.dataset.nodeId = nodeId; node.appendChild(connector); }); const handle = document.createElement('div'); handle.className = 'resize-handle'; handle.dataset.nodeId = nodeId; node.appendChild(handle); container.appendChild(node); addNodeEventListeners(node); updateNodeVisuals(node); if (recordUndo && isNewNodeFromUser) recordAction({ type: 'createNode', nodeId: node.id, nodeData: getNodeDataForUndo(node) }); return node; }
-    function addNodeEventListeners(node) { node.addEventListener('dblclick', handleNodeDblClick); const contentDiv = node.querySelector('.content'); contentDiv.addEventListener('focus', () => { node.dataset.originalContentForUndo = contentDiv.innerHTML; }); contentDiv.addEventListener('input', () => drawLines()); }
+    function addNodeEventListeners(node) {
+        node.addEventListener('dblclick', handleNodeDblClick);
+        const contentDiv = node.querySelector('.content');
+        contentDiv.addEventListener('focus', () => {
+            node.dataset.originalContentForUndo = contentDiv.innerHTML;
+        });
+        contentDiv.addEventListener('blur', handleNodeBlur);
+        contentDiv.addEventListener('input', () => drawLines());
+    }
 
     // --- Styling and Formatting ---
     function showToolbar(el) { const rect = el.getBoundingClientRect(); toolbar.style.left = `${rect.left}px`; toolbar.style.top = `${rect.bottom + 10}px`; toolbar.style.visibility = 'visible'; }
     function hideToolbar() { toolbar.style.visibility = 'hidden'; }
-    function applyFormat(cmd, val = null) { if (!editingNode) return; const contentDiv = editingNode.querySelector('.content'); contentDiv.focus(); if (savedRange) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(savedRange); } document.execCommand(cmd, false, val); contentDiv.focus(); }
-    function updateNodeVisuals(node) { if (!node) return; const bgColor = node.style.backgroundColor; const borderColor = node.style.borderColor; const borderWidth = parseInt(node.style.borderWidth) || 0; const isBgTransparent = bgColor === 'transparent' || bgColor === 'rgba(0, 0, 0, 0)'; const isBorderTransparent = borderWidth === 0 || borderColor === 'transparent' || borderColor === 'rgba(0, 0, 0, 0)'; if (isBgTransparent && isBorderTransparent) node.style.boxShadow = 'none'; else if (node.style.boxShadow === 'none') node.style.boxShadow = ''; }
-    function applyStyleToSingleNode(node, style, value) { if (!node) return; switch (style) { case 'backgroundColor': node.style.backgroundColor = value; break; case 'borderColor': node.style.borderColor = value; break; case 'borderWidth': const width = parseInt(value, 10); if (isNaN(width) || width <= 0) { node.style.borderWidth = `0px`; node.style.borderStyle = 'none'; } else { node.style.borderWidth = `${width}px`; node.style.borderStyle = 'solid'; const currentBorderColorVal = window.getComputedStyle(node).borderColor; if (['rgba(0, 0, 0, 0)', 'transparent'].includes(currentBorderColorVal)) node.style.borderColor = '#6b7280'; } break; case 'shape': node.classList.remove('node-ellipse'); node.style.borderRadius = ''; if (value === 'ellipse') node.classList.add('node-ellipse'); break; case 'transparent': node.style.backgroundColor = 'transparent'; node.style.borderColor = 'transparent'; node.style.borderWidth = '0px'; break; } updateNodeVisuals(node); }
-    function applyNodeStyle(style, value) { if (selectedItems.size === 0 && !editingNode) return; const targets = editingNode ? [editingNode] : Array.from(selectedItems).map(id => document.getElementById(id)); targets.forEach(node => applyStyleToSingleNode(node, style, value)); drawLines(); }
-    function applyTextAlign(alignValue) { if (!editingNode && selectedItems.size === 0) return; const targets = editingNode ? [editingNode] : Array.from(selectedItems).map(id => document.getElementById(id)); targets.forEach(node => { const contentDiv = node?.querySelector('.content'); if (contentDiv) contentDiv.style.textAlign = alignValue; }); }
-    function applyGlobalStylesToSelectedNodes() { selectedItems.forEach(nodeId => { const node = document.getElementById(nodeId); if (!node) return; node.style.backgroundColor = globalNodeBackgroundColor; node.style.borderColor = globalNodeBorderColor; const borderWidthNum = parseInt(globalNodeBorderWidth); node.style.borderWidth = `${borderWidthNum}px`; node.style.borderStyle = borderWidthNum > 0 ? 'solid' : 'none'; node.classList.toggle('node-ellipse', globalNodeShape === 'ellipse'); if (globalNodeShape !== 'ellipse') node.style.borderRadius = ''; updateNodeVisuals(node); }); drawLines(); }
-    function applyGlobalStylesToSelectedGroups() {
-        const bgColorHex = globalGroupBgColorInput.value;
-        const borderColorHex = globalGroupBorderColorInput.value;
-        const bgOpacity = globalGroupBgOpacityInput.value;
-        const borderOpacity = globalGroupBorderOpacityInput.value;
+    function applyFormat(cmd, val = null) {
+        if (!editingNode) return;
+        const contentDiv = editingNode.querySelector('.content');
+        contentDiv.focus();
+        if (savedRange) {
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(savedRange);
+        }
 
-        // Helper to convert hex to rgb
-        const hexToRgb = hex => {
-            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-            return result ? {
-                r: parseInt(result[1], 16),
-                g: parseInt(result[2], 16),
-                b: parseInt(result[3], 16)
-            } : null;
-        };
-        
-        const bgRgb = hexToRgb(bgColorHex);
-        const borderRgb = hexToRgb(borderColorHex);
-
-        if (!bgRgb || !borderRgb) return; // Exit if a color is invalid
-
-        const newBgRgba = `rgba(${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}, ${bgOpacity})`;
-        const newBorderRgba = `rgba(${borderRgb.r}, ${borderRgb.g}, ${borderRgb.b}, ${borderOpacity})`;
-
-        selectedItems.forEach(itemId => {
-            const item = document.getElementById(itemId);
-            if (item && item.classList.contains('group-container')) {
-                item.style.backgroundColor = newBgRgba;
-                item.style.borderColor = newBorderRgba;
+        if (cmd === 'removeFormat') {
+            // Primeiro, desative a lista se a seleção estiver dentro de uma.
+            // O comando 'insertUnorderedList' funciona como um interruptor.
+            if (document.queryCommandState('insertUnorderedList')) {
+                document.execCommand('insertUnorderedList', false, null);
             }
-        });
+            // Agora, execute o removeFormat padrão para limpar quaisquer outros estilos em linha.
+            document.execCommand('removeFormat', false, val);
+        } else {
+            // Para todos os outros comandos, execute-os normalmente.
+            document.execCommand(cmd, false, val);
+        }
+
+        contentDiv.focus();
+    }
+    function updateNodeVisuals(node) { if (!node) return; const bgColor = node.style.backgroundColor; const borderColor = node.style.borderColor; const borderWidth = parseInt(node.style.borderWidth) || 0; const isBgTransparent = bgColor === 'transparent' || bgColor === 'rgba(0, 0, 0, 0)'; const isBorderTransparent = borderWidth === 0 || borderColor === 'transparent' || borderColor === 'rgba(0, 0, 0, 0)'; if (isBgTransparent && isBorderTransparent) node.style.boxShadow = 'none'; else if (node.style.boxShadow === 'none') node.style.boxShadow = ''; }
+
+    function applyStyleToSingleNode(node, style, value) {
+        if (!node || !node.classList.contains('node')) return;
+        const contentDiv = node.querySelector('.content');
+        switch (style) {
+            case 'backgroundColor': node.style.backgroundColor = value; break;
+            case 'borderColor': node.style.borderColor = value; break;
+            case 'borderWidth':
+                const width = parseInt(value, 10);
+                if (isNaN(width) || width < 0) return;
+                node.style.borderWidth = `${width}px`;
+                node.style.borderStyle = width > 0 ? 'solid' : 'none';
+                if (width > 0 && (node.style.borderColor === 'transparent' || node.style.borderColor === 'rgba(0, 0, 0, 0)')) {
+                    node.style.borderColor = '#6b7280'; // a default visible color
+                }
+                break;
+            case 'shape':
+                // Remove all shape-related classes first
+                node.classList.remove('node-ellipse', 'node-rounded-xl', 'node-pill');
+                node.style.borderRadius = ''; // Reset to default stylesheet radius for rectangle
+
+                if (value === 'ellipse') {
+                    node.classList.add('node-ellipse');
+                } else if (value === 'rounded-xl') {
+                    node.classList.add('node-rounded-xl');
+                } else if (value === 'pill') {
+                    node.classList.add('node-pill');
+                }
+                // 'rectangle' is the default, no class needed
+                break;
+            case 'textAlign':
+                if (contentDiv) contentDiv.style.textAlign = value;
+                break;
+            case 'lineHeight':
+                if (contentDiv) contentDiv.style.lineHeight = value;
+                break;
+        }
+        updateNodeVisuals(node);
     }
 
+    function applyNodeStyle(style, value) {
+        if (!editingNode) return;
+        const targets = [editingNode];
+        const changes = [];
+        targets.forEach(node => {
+            const contentDiv = node.querySelector('.content');
+            let oldValue;
+            switch(style) {
+                case 'backgroundColor': oldValue = node.style.backgroundColor; break;
+                case 'borderColor': oldValue = node.style.borderColor; break;
+                case 'borderWidth': oldValue = node.style.borderWidth; break;
+                case 'shape':
+                    if (node.classList.contains('node-ellipse')) oldValue = 'ellipse';
+                    else if (node.classList.contains('node-rounded-xl')) oldValue = 'rounded-xl';
+                    else if (node.classList.contains('node-pill')) oldValue = 'pill';
+                    else oldValue = 'rectangle';
+                    break;
+                case 'textAlign':
+                    oldValue = contentDiv.style.textAlign || 'center';
+                    break;
+                case 'lineHeight': oldValue = contentDiv.style.lineHeight || 'normal'; break;
+                default: return;
+            }
+            if (oldValue !== value) {
+                changes.push({ nodeId: node.id, style, oldValue, newValue: value });
+                applyStyleToSingleNode(node, style, value);
+            }
+        });
+        if (changes.length > 0) recordAction({ type: 'changeNodeStyles', changes });
+        drawLines();
+    }
+
+    function toggleNodeTransparency() {
+        if (!editingNode) return;
+        const node = editingNode;
+        const isTransparent = node.style.backgroundColor === 'transparent';
+        const changes = [];
+        const oldValues = { backgroundColor: node.style.backgroundColor, borderColor: node.style.borderColor, borderWidth: node.style.borderWidth };
+        if (isTransparent) {
+            const newBg = node.dataset.oldBg || '#FFFFFF';
+            const newBorder = node.dataset.oldBorder || '#E5E7EB';
+            const newWidth = node.dataset.oldWidth || '1px';
+            changes.push({ nodeId: node.id, style: 'backgroundColor', oldValue: 'transparent', newValue: newBg });
+            changes.push({ nodeId: node.id, style: 'borderColor', oldValue: 'transparent', newValue: newBorder });
+            changes.push({ nodeId: node.id, style: 'borderWidth', oldValue: '0px', newValue: newWidth });
+            applyStyleToSingleNode(node, 'backgroundColor', newBg);
+            applyStyleToSingleNode(node, 'borderColor', newBorder);
+            applyStyleToSingleNode(node, 'borderWidth', newWidth);
+        } else {
+            node.dataset.oldBg = oldValues.backgroundColor;
+            node.dataset.oldBorder = oldValues.borderColor;
+            node.dataset.oldWidth = oldValues.borderWidth;
+            changes.push({ nodeId: node.id, style: 'backgroundColor', oldValue: oldValues.backgroundColor, newValue: 'transparent' });
+            changes.push({ nodeId: node.id, style: 'borderColor', oldValue: oldValues.borderColor, newValue: 'transparent' });
+            changes.push({ nodeId: node.id, style: 'borderWidth', oldValue: oldValues.borderWidth, newValue: '0px' });
+            applyStyleToSingleNode(node, 'backgroundColor', 'transparent');
+            applyStyleToSingleNode(node, 'borderColor', 'transparent');
+            applyStyleToSingleNode(node, 'borderWidth', '0px');
+        }
+        if (changes.length > 0) recordAction({ type: 'changeNodeStyles', changes });
+    }
+
+    function applyTextAlign(alignValue) { if (!editingNode) return; applyNodeStyle('textAlign', alignValue); }
+
+    function updateToolbarState(node) {
+        if (!node) return;
+        const styles = window.getComputedStyle(node);
+        const contentStyles = window.getComputedStyle(node.querySelector('.content'));
+        const rgbToHex = (rgb) => {
+            if (!rgb || !rgb.startsWith('rgb')) return '#000000';
+            const [r, g, b] = rgb.match(/\d+/g).map(Number);
+            return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+        };
+        toolbar.querySelector('input[data-style="borderWidth"]').value = parseInt(styles.borderWidth, 10) || 0;
+        toolbar.querySelector('input[data-style="borderColor"]').value = rgbToHex(styles.borderColor);
+        toolbar.querySelector('input[data-style="backgroundColor"]').value = rgbToHex(styles.backgroundColor);
+
+        const shapeSelect = toolbar.querySelector('select[data-style="shape"]');
+        if (node.classList.contains('node-ellipse')) shapeSelect.value = 'ellipse';
+        else if (node.classList.contains('node-rounded-xl')) shapeSelect.value = 'rounded-xl';
+        else if (node.classList.contains('node-pill')) shapeSelect.value = 'pill';
+        else shapeSelect.value = 'rectangle';
+
+        const lineHeightSelect = toolbar.querySelector('select[data-style="lineHeight"]');
+        const currentLineHeight = contentStyles.lineHeight;
+        if (currentLineHeight === 'normal') { lineHeightSelect.value = 'normal'; }
+        else {
+            const pixelValue = parseFloat(currentLineHeight);
+            const fontSize = parseFloat(contentStyles.fontSize);
+            const ratio = (pixelValue / fontSize).toFixed(1);
+            let bestMatch = 'normal';
+            if (ratio <= 1.1) bestMatch = '1';
+            else if (ratio <= 1.6) bestMatch = '1.5';
+            else bestMatch = '2';
+            lineHeightSelect.value = bestMatch;
+        }
+    }
 
     // --- Line Drawing & Connections ---
     function getConnectorPosition(el, pos) {
@@ -416,9 +768,9 @@
             default:       return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y + nodeWorldHeight / 2 };
         }
     }
-    function createSvgPath(d, isTemp = false) { const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); p.style.fill = 'none'; p.style.strokeLinecap = 'round'; p.style.strokeLinejoin = 'round'; p.style.vectorEffect = "non-scaling-stroke"; if (isTemp) { p.classList.add('temp'); p.style.stroke = '#93c5fd'; p.style.strokeWidth = String(currentLineStrokeWidth); p.style.strokeDasharray = '6, 4'; } else { p.style.stroke = currentLineColor; p.style.strokeWidth = String(currentLineStrokeWidth); } svg.appendChild(p); }
+    function createSvgPath(d, isTemp = false) { const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); p.style.fill = 'none'; p.style.strokeLinecap = 'round'; p.style.strokeLinejoin = 'round'; p.style.vectorEffect = "non-scaling-stroke"; if (isTemp) { p.classList.add('temp'); p.style.stroke = themeColors.connection; p.style.strokeWidth = String(currentLineStrokeWidth); p.style.strokeDasharray = '6, 4'; } else { p.style.stroke = currentLineColor; p.style.strokeWidth = String(currentLineStrokeWidth); } svg.appendChild(p); }
     function drawLines() {
-        svg.innerHTML = ''; // Clear previous lines
+        svg.innerHTML = '';
         connections.forEach((conn, index) => {
             const fromNode = document.getElementById(conn.from);
             const toNode = document.getElementById(conn.to);
@@ -442,7 +794,7 @@
             visibleLine.style.strokeLinejoin = 'round';
             visibleLine.style.pointerEvents = 'none';
             visibleLine.style.vectorEffect = "non-scaling-stroke";
-            visibleLine.style.stroke = isSelected ? '#f59e0b' : (conn.color || currentLineColor);
+            visibleLine.style.stroke = isSelected ? themeColors.connectionSelected : (conn.color || currentLineColor);
             visibleLine.style.strokeWidth = isSelected ? String(Number(conn.width || currentLineStrokeWidth) + 1.5) : String(conn.width || currentLineStrokeWidth);
             const hitBoxLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             hitBoxLine.setAttribute('d', pathData);
@@ -465,13 +817,11 @@
             createSvgPath(`M${start.x},${start.y} C${c1x},${c1y} ${c2x},${c2y} ${worldMouseEnd.x},${worldMouseEnd.y}`, true);
         }
     }
-    
+
     // --- Grouping Logic ---
     function getAbsolutePosition(element) {
-        let x = 0;
-        let y = 0;
+        let x = 0, y = 0;
         let currentElement = element;
-        // Traverse up the offsetParents chain to calculate absolute position relative to the main container
         while (currentElement && currentElement !== container) {
             x += currentElement.offsetLeft;
             y += currentElement.offsetTop;
@@ -481,22 +831,24 @@
     }
 
     function handleGroup() {
-        if (selectedItems.size < 2) {
-            alert("Por favor, selecione pelo menos dois itens para agrupar.");
+        const itemsToGroup = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && (el.classList.contains('node') || el.classList.contains('group-container')));
+        if (itemsToGroup.length < 2) {
+            showModal("Por favor, selecione pelo menos dois itens para agrupar.");
             return;
         }
-
-        const nodesToGroup = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node'));
-        if (nodesToGroup.length < 2) return;
+        
+        const oldItemsData = itemsToGroup.map(item => {
+            const absPos = getAbsolutePosition(item);
+            return { id: item.id, left: absPos.x + 'px', top: absPos.y + 'px' };
+        });
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-        nodesToGroup.forEach(node => {
-            const absPos = getAbsolutePosition(node);
+        itemsToGroup.forEach(item => {
+            const absPos = getAbsolutePosition(item);
             minX = Math.min(minX, absPos.x);
             minY = Math.min(minY, absPos.y);
-            maxX = Math.max(maxX, absPos.x + node.offsetWidth);
-            maxY = Math.max(maxY, absPos.y + node.offsetHeight);
+            maxX = Math.max(maxX, absPos.x + item.offsetWidth);
+            maxY = Math.max(maxY, absPos.y + item.offsetHeight);
         });
 
         const padding = 25;
@@ -506,7 +858,8 @@
         const groupHeight = (maxY - minY) + (2 * padding);
 
         const groupContainer = document.createElement('div');
-        groupContainer.id = 'group-' + Date.now();
+        const groupId = 'group-' + Date.now();
+        groupContainer.id = groupId;
         groupContainer.className = 'group-container';
         groupContainer.style.left = `${groupLeft}px`;
         groupContainer.style.top = `${groupTop}px`;
@@ -514,59 +867,242 @@
         groupContainer.style.height = `${groupHeight}px`;
         container.appendChild(groupContainer);
 
-        nodesToGroup.forEach(node => {
-            const absPos = getAbsolutePosition(node);
-            // Set new position relative to the group container
-            node.style.left = `${absPos.x - groupLeft}px`;
-            node.style.top = `${absPos.y - groupTop}px`;
-            node.classList.add('in-group'); // Hides individual connectors/handles via CSS
-            groupContainer.appendChild(node);
+        itemsToGroup.forEach(item => {
+            const absPos = getAbsolutePosition(item);
+            item.style.left = `${absPos.x - groupLeft}px`;
+            item.style.top = `${absPos.y - groupTop}px`;
+            if (item.classList.contains('node')) item.classList.add('in-group');
+            groupContainer.appendChild(item);
         });
         
+        recordAction({
+            type: 'group',
+            groupId: groupId,
+            groupedItemsData: oldItemsData,
+            groupRect: { left: groupContainer.style.left, top: groupContainer.style.top, width: groupContainer.style.width, height: groupContainer.style.height }
+        });
+
         selectedItems.clear();
         selectedItems.add(groupContainer.id);
         updateSelectionVisuals();
         drawLines();
-        // Future improvement: recordAction({ type: 'group', ... });
     }
 
     function handleUngroup() {
         const groupsToUngroup = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('group-container'));
         if (groupsToUngroup.length === 0) {
-            alert("Por favor, selecione um grupo para desagrupar.");
+            showModal("Por favor, selecione um grupo para desagrupar.");
             return;
         }
 
-        const newlyUngroupedNodeIds = new Set();
+        const ungroupedData = [];
+        const newlySelectedIds = new Set();
+
         groupsToUngroup.forEach(groupContainer => {
-            const childNodes = Array.from(groupContainer.querySelectorAll('.node'));
+            const groupAbsPos = getAbsolutePosition(groupContainer);
+            const childItems = Array.from(groupContainer.children).filter(c => c.classList.contains('node') || c.classList.contains('group-container'));
             
-            childNodes.forEach(node => {
-                const nodeAbsPos = getAbsolutePosition(node);
-                node.style.left = `${nodeAbsPos.x}px`;
-                node.style.top = `${nodeAbsPos.y}px`;
-                node.classList.remove('in-group');
-                container.appendChild(node); // Move back to main container
-                newlyUngroupedNodeIds.add(node.id);
+            ungroupedData.push({
+                groupData: { id: groupContainer.id, left: groupContainer.style.left, top: groupContainer.style.top, width: groupContainer.style.width, height: groupContainer.style.height },
+                childrenData: childItems.map(child => ({ id: child.id, left: child.style.left, top: child.style.top }))
             });
 
+            childItems.forEach(child => {
+                const childNewLeft = groupAbsPos.x + child.offsetLeft;
+                const childNewTop = groupAbsPos.y + child.offsetTop;
+                child.style.left = `${childNewLeft}px`;
+                child.style.top = `${childNewTop}px`;
+                if(child.classList.contains('node')) child.classList.remove('in-group');
+                container.appendChild(child);
+                newlySelectedIds.add(child.id);
+            });
             groupContainer.remove();
         });
 
+        recordAction({ type: 'ungroup', ungroupedData });
+
         selectedItems.clear();
-        newlyUngroupedNodeIds.forEach(id => selectedItems.add(id));
+        newlySelectedIds.forEach(id => selectedItems.add(id));
         updateSelectionVisuals();
         drawLines();
-        // Future improvement: recordAction({ type: 'ungroup', ... });
+    }
+    
+    // --- Lógica do Painel Flutuante ---
+    function showMultiSelectToolbar() {
+        if (selectedItems.size <= 1) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let hasVisibleItems = false;
+        selectedItems.forEach(id => {
+            const item = document.getElementById(id);
+            if (item) {
+                const rect = item.getBoundingClientRect();
+                minX = Math.min(minX, rect.left);
+                minY = Math.min(minY, rect.top);
+                maxX = Math.max(maxX, rect.right);
+                maxY = Math.max(maxY, rect.bottom);
+                hasVisibleItems = true;
+            }
+        });
+
+        if (!hasVisibleItems) {
+            hideMultiSelectToolbar();
+            return;
+        }
+
+        const toolbarWidth = multiSelectToolbar.offsetWidth;
+        const canvasRect = canvasEl.getBoundingClientRect();
+        let top = minY - multiSelectToolbar.offsetHeight - 15;
+        let left = minX + (maxX - minX) / 2 - toolbarWidth / 2;
+        if (top < canvasRect.top + 5) {
+            top = maxY + 15;
+        }
+        left = Math.max(canvasRect.left + 5, Math.min(left, canvasRect.right - toolbarWidth - 5));
+        multiSelectToolbar.style.left = `${left}px`;
+        multiSelectToolbar.style.top = `${top}px`;
+        multiSelectToolbar.style.visibility = 'visible';
+    }
+
+    function hideMultiSelectToolbar() {
+        multiSelectToolbar.style.visibility = 'hidden';
+    }
+    
+    // --- Lógica do Painel de Conexão ---
+    function showConnectionToolbar() {
+        if (selectedConnections.size === 0) {
+            hideConnectionToolbar();
+            return;
+        }
+        const firstConnIndex = selectedConnections.values().next().value;
+        const firstConn = connections[firstConnIndex];
+        if (firstConn) {
+            connectionToolbar.querySelector('[data-conn-style="color"]').value = firstConn.color || currentLineColor;
+            connectionToolbar.querySelector('[data-conn-style="width"]').value = firstConn.width || currentLineStrokeWidth;
+        }
+        
+        // Posicionar o painel
+        if (connectionToolbar.style.visibility !== 'visible') {
+            const canvasRect = canvasEl.getBoundingClientRect();
+            connectionToolbar.style.left = `${canvasRect.left + 20}px`;
+            connectionToolbar.style.top = `${canvasRect.top + 80}px`;
+        }
+        connectionToolbar.style.visibility = 'visible';
+    }
+
+    function hideConnectionToolbar() {
+        connectionToolbar.style.visibility = 'hidden';
+    }
+
+    function applyBulkStyles() {
+        const newBgColor = multiSelectToolbar.querySelector('[data-multi-style="backgroundColor"]').value;
+        const newBorderColor = multiSelectToolbar.querySelector('[data-multi-style="borderColor"]').value;
+        const newBorderWidth = multiSelectToolbar.querySelector('[data-multi-style="borderWidth"]').value;
+        const newShape = multiSelectToolbar.querySelector('[data-multi-style="shape"]').value;
+
+        const changes = [];
+        const nodesToChange = Array.from(selectedItems)
+            .map(id => document.getElementById(id))
+            .filter(el => el && el.classList.contains('node'));
+
+        if (nodesToChange.length === 0) return;
+
+        nodesToChange.forEach(node => {
+            let oldShape = 'rectangle';
+            if (node.classList.contains('node-ellipse')) oldShape = 'ellipse';
+            else if (node.classList.contains('node-rounded-xl')) oldShape = 'rounded-xl';
+            else if (node.classList.contains('node-pill')) oldShape = 'pill';
+
+            changes.push({
+                nodeId: node.id,
+                oldStyles: {
+                    backgroundColor: node.style.backgroundColor,
+                    borderColor: node.style.borderColor,
+                    borderWidth: node.style.borderWidth,
+                    shape: oldShape
+                }
+            });
+
+            applyStyleToSingleNode(node, 'backgroundColor', newBgColor);
+            applyStyleToSingleNode(node, 'borderColor', newBorderColor);
+            applyStyleToSingleNode(node, 'borderWidth', newBorderWidth);
+            applyStyleToSingleNode(node, 'shape', newShape);
+        });
+
+        if (changes.length > 0) {
+            recordAction({
+                type: 'bulkChangeNodeStyles',
+                changes: changes,
+                newStyles: {
+                    backgroundColor: newBgColor,
+                    borderColor: newBorderColor,
+                    borderWidth: newBorderWidth,
+                    shape: newShape
+                }
+            });
+        }
+        drawLines();
+    }
+    
+    function applyConnectionStyles() {
+        if (selectedConnections.size === 0) return;
+        const newColor = connectionToolbar.querySelector('[data-conn-style="color"]').value;
+        const newWidth = connectionToolbar.querySelector('[data-conn-style="width"]').value;
+
+        const changes = [];
+        selectedConnections.forEach(index => {
+            const conn = connections[index];
+            if(conn) {
+                const oldStyles = { color: conn.color || currentLineColor, width: conn.width || currentLineStrokeWidth };
+                if (oldStyles.color !== newColor || String(oldStyles.width) !== newWidth) {
+                     changes.push({ index: index, oldStyles: oldStyles });
+                     conn.color = newColor;
+                     conn.width = parseFloat(newWidth);
+                }
+            }
+        });
+
+        if (changes.length > 0) {
+             recordAction({
+                type: 'changeConnectionStyles',
+                changes: changes,
+                newStyles: { color: newColor, width: parseFloat(newWidth) }
+            });
+        }
+        drawLines();
+    }
+
+    function updateMultiSelectToolbarState() {
+        const selectionSize = selectedItems.size;
+        const hasGroup = [...selectedItems].some(id => document.getElementById(id)?.classList.contains('group-container'));
+        
+        const canAlign = selectionSize >= 2;
+        const canGroup = selectionSize >= 2;
+        const canUngroup = hasGroup;
+
+        multiSelectToolbar.querySelectorAll('[data-action="group"]').forEach(btn => btn.disabled = !canGroup);
+        multiSelectToolbar.querySelectorAll('[data-action="ungroup"]').forEach(btn => btn.disabled = !canUngroup);
+        multiSelectToolbar.querySelectorAll('[data-align], [data-distribute]').forEach(btn => btn.disabled = !canAlign);
     }
 
     // --- Selection & Alignment ---
-    function updateSelectionVisuals() { 
-        document.querySelectorAll('.node.selected, .group-container.selected').forEach(el => el.classList.remove('selected')); 
-        selectedItems.forEach(id => { 
-            const item = document.getElementById(id); 
-            if (item) item.classList.add('selected'); 
-        }); 
+    function updateSelectionVisuals() {
+        document.querySelectorAll('.node.selected, .group-container.selected').forEach(el => el.classList.remove('selected'));
+        selectedItems.forEach(id => {
+            const item = document.getElementById(id);
+            if (item) item.classList.add('selected');
+        });
+
+        if (selectedItems.size > 1) {
+            showMultiSelectToolbar();
+            updateMultiSelectToolbarState();
+        } else {
+            hideMultiSelectToolbar();
+        }
+
+        if (selectedConnections.size > 0) {
+            showConnectionToolbar();
+        } else {
+            hideConnectionToolbar();
+        }
     }
     function selectItem(item, isCtrlPressed) {
         const itemId = item.id;
@@ -576,7 +1112,7 @@
         updateSelectionVisuals();
     }
     function selectNodesInRect(rect, isCtrlPressed) { if (!isCtrlPressed) selectedItems.clear(); document.querySelectorAll('.node:not(.in-group), .group-container').forEach(item => { const itemRect = item.getBoundingClientRect(); if (!(rect.right < itemRect.left || rect.left > itemRect.right || rect.bottom < itemRect.top || rect.top > itemRect.bottom)) selectedItems.add(item.id); }); updateSelectionVisuals(); }
-    function clearSelection() { const hadNodeSelection = selectedItems.size > 0; const hadConnSelection = selectedConnections.size > 0; selectedItems.clear(); selectedConnections.clear(); if (hadNodeSelection) updateSelectionVisuals(); if (hadConnSelection) drawLines(); }
+    function clearSelection() { const hadNodeSelection = selectedItems.size > 0; const hadConnSelection = selectedConnections.size > 0; selectedItems.clear(); selectedConnections.clear(); if (hadNodeSelection) updateSelectionVisuals(); if (hadConnSelection) { drawLines(); updateSelectionVisuals(); } hideMultiSelectToolbar(); hideConnectionToolbar(); }
     function handleDelete() {
         if (selectedConnections.size > 0) {
             const connectionsToDelete = Array.from(selectedConnections).map(index => connections[index]).filter(Boolean);
@@ -587,125 +1123,197 @@
             }
             selectedConnections.clear();
             drawLines();
+            updateSelectionVisuals(); // Esconde o painel de conexao
         } else if (selectedItems.size > 0) {
             const nodesToDeleteData = [];
             const connectionsLinkedToDeletedNodes = [];
-
             const itemsToDelete = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean);
             const nodeIdsToDelete = new Set();
-
             itemsToDelete.forEach(item => {
-                if (item.classList.contains('group-container')) {
-                    // NOTE: Undo for group deletion is not implemented in this pass for simplicity.
-                    item.querySelectorAll('.node').forEach(node => nodeIdsToDelete.add(node.id));
-                } else if (item.classList.contains('node')) {
-                    nodeIdsToDelete.add(item.id);
-                }
+                if (item.classList.contains('group-container')) { item.querySelectorAll('.node').forEach(node => nodeIdsToDelete.add(node.id)); }
+                else if (item.classList.contains('node')) { nodeIdsToDelete.add(item.id); }
             });
-
             nodeIdsToDelete.forEach(nodeId => {
                 const node = document.getElementById(nodeId);
                 if (node) {
                     nodesToDeleteData.push(getNodeDataForUndo(node));
                     connections.forEach(conn => {
                         if (conn.from === nodeId || conn.to === nodeId) {
-                            if (!connectionsLinkedToDeletedNodes.some(c => c.from === conn.from && c.to === conn.to)) {
+                            if (!connectionsLinkedToDeletedNodes.some(c => c.from === conn.from && c.to === c.to)) {
                                 connectionsLinkedToDeletedNodes.push({ ...conn });
                             }
                         }
                     });
                 }
             });
-
-            if (nodesToDeleteData.length > 0) {
-                recordAction({ type: 'deleteNodes', nodesData: nodesToDeleteData, connectionsData: connectionsLinkedToDeletedNodes });
-            }
-            
+            if (nodesToDeleteData.length > 0) recordAction({ type: 'deleteNodes', nodesData: nodesToDeleteData, connectionsData: connectionsLinkedToDeletedNodes });
             itemsToDelete.forEach(item => item.remove());
             connections = connections.filter(c => !nodeIdsToDelete.has(c.from) && !nodeIdsToDelete.has(c.to));
-            
             selectedItems.clear();
             updateSelectionVisuals();
             drawLines();
         }
     }
-    
+
     // --- Page Settings Logic ---
     function updatePageGuide() {
         const size = pageSizeSelect.value;
         const orientation = pageOrientationSelect.value;
         let finalWidth, finalHeight;
-
         if (size === 'custom') {
             finalWidth = parseInt(pageCustomWidth.value, 10);
             finalHeight = parseInt(pageCustomHeight.value, 10);
         } else {
             const dims = PAGE_SIZES_PX[size];
-            if (orientation === 'landscape') {
-                finalWidth = dims.height;
-                finalHeight = dims.width;
-            } else { // portrait
-                finalWidth = dims.width;
-                finalHeight = dims.height;
-            }
+            if (orientation === 'landscape') { finalWidth = dims.height; finalHeight = dims.width; }
+            else { finalWidth = dims.width; finalHeight = dims.height; }
         }
-
-        if (a4PageGuideRect) {
-            a4PageGuideRect.setAttribute('width', finalWidth);
-            a4PageGuideRect.setAttribute('height', finalHeight);
-        }
-
+        if (a4PageGuideRect) { a4PageGuideRect.setAttribute('width', finalWidth); a4PageGuideRect.setAttribute('height', finalHeight); }
         let printSizeRule;
-        if (size === 'custom') {
-            printSizeRule = `${finalWidth}px ${finalHeight}px`;
-        } else {
+        if (size === 'custom') { printSizeRule = `${finalWidth}px ${finalHeight}px`; }
+        else {
             const physicalDims = PAGE_SIZES_PHYSICAL[size];
-            if (orientation === 'landscape') {
-                printSizeRule = `${physicalDims.height} ${physicalDims.width}`;
-            } else { // portrait
-                printSizeRule = `${physicalDims.width} ${physicalDims.height}`;
-            }
+            if (orientation === 'landscape') { printSizeRule = `${physicalDims.height} ${physicalDims.width}`; }
+            else { printSizeRule = `${physicalDims.width} ${physicalDims.height}`; }
         }
-        
         dynamicPrintStyle.innerHTML = `@page { size: ${printSizeRule}; margin: 0 !important; }`;
     }
-    
+
     function alignSelected(type) { const nodes = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean); if (nodes.length < 2) return; const initialPositions = nodes.map(node => ({ nodeId: node.id, oldLeft: `${node.offsetLeft}px`, oldTop: `${node.offsetTop}px` })); let targetPos; switch (type) { case 'left': targetPos = Math.min(...nodes.map(n => n.offsetLeft)); nodes.forEach(n => n.style.left = `${targetPos}px`); break; case 'right': targetPos = Math.max(...nodes.map(n => n.offsetLeft + n.offsetWidth)); nodes.forEach(n => n.style.left = `${Math.round(targetPos - n.offsetWidth)}px`); break; case 'top': targetPos = Math.min(...nodes.map(n => n.offsetTop)); nodes.forEach(n => n.style.top = `${targetPos}px`); break; case 'bottom': targetPos = Math.max(...nodes.map(n => n.offsetTop + n.offsetHeight)); nodes.forEach(n => n.style.top = `${Math.round(targetPos - n.offsetHeight)}px`); break; case 'center-h': const midX = nodes.reduce((sum, n) => sum + n.offsetLeft + n.offsetWidth / 2, 0) / nodes.length; nodes.forEach(n => n.style.left = `${Math.round(midX - n.offsetWidth / 2)}px`); break; case 'center-v': const midY = nodes.reduce((sum, n) => sum + n.offsetTop + n.offsetHeight / 2, 0) / nodes.length; nodes.forEach(n => n.style.top = `${Math.round(midY - n.offsetHeight / 2)}px`); break; } const finalChanges = initialPositions.map(pos => ({ ...pos, newLeft: document.getElementById(pos.nodeId).style.left, newTop: document.getElementById(pos.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges }); drawLines(); }
     function distributeSelected(type) { const nodes = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean); if (nodes.length < 2) return; const initialPositions = nodes.map(node => ({ nodeId: node.id, oldLeft: `${node.offsetLeft}px`, oldTop: `${node.offsetTop}px` })); if (type === 'horizontal') { nodes.sort((a, b) => a.offsetLeft - b.offsetLeft); const minLeft = nodes[0].offsetLeft; const maxRight = nodes[nodes.length - 1].offsetLeft + nodes[nodes.length - 1].offsetWidth; const totalSpan = maxRight - minLeft; let totalNodesWidth = nodes.reduce((sum, n) => sum + n.offsetWidth, 0); const gap = (totalSpan - totalNodesWidth) / (nodes.length - 1); let currentX = parseFloat(minLeft); for (let i = 0; i < nodes.length; i++) { nodes[i].style.left = `${Math.round(currentX)}px`; currentX += nodes[i].offsetWidth + gap; } } else if (type === 'vertical') { nodes.sort((a, b) => a.offsetTop - b.offsetTop); const minTop = nodes[0].offsetTop; const maxBottom = nodes[nodes.length - 1].offsetTop + nodes[nodes.length - 1].offsetHeight; const totalSpan = maxBottom - minTop; let totalNodesHeight = nodes.reduce((sum, n) => sum + n.offsetHeight, 0); const gap = (totalSpan - totalNodesHeight) / (nodes.length - 1); let currentY = parseFloat(minTop); for (let i = 0; i < nodes.length; i++) { nodes[i].style.top = `${Math.round(currentY)}px`; currentY += nodes[i].offsetHeight + gap; } } const finalChanges = initialPositions.map(pos => ({ ...pos, newLeft: document.getElementById(pos.nodeId).style.left, newTop: document.getElementById(pos.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges }); drawLines(); }
 
     // --- Clipboard & Save/Load ---
-    // NOTE: Save/Load does not currently support groups. This is a future improvement.
     function handleCopy() { if (selectedItems.size === 0) return; appClipboard.items = []; appClipboard.type = 'copy'; let minLeft = Infinity, minTop = Infinity; const nodesToProcess = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node')); if (nodesToProcess.length === 0) return; nodesToProcess.forEach(n => { minLeft = Math.min(minLeft, n.offsetLeft); minTop = Math.min(minTop, n.offsetTop); }); appClipboard.anchor = { left: minLeft, top: minTop }; appClipboard.items = nodesToProcess.map(node => ({ contentHTML: node.querySelector('.content').innerHTML, className: Array.from(node.classList).filter(c => !['selected', 'dragging'].includes(c)).join(' '), inlineStyle: node.style.cssText, width: node.offsetWidth, height: node.offsetHeight, relativeLeft: node.offsetLeft - minLeft, relativeTop: node.offsetTop - minTop, })); }
     function handleCut() { handleCopy(); if (appClipboard.items.length > 0) { appClipboard.type = 'cut'; handleDelete(); } }
     function handlePaste() { if (appClipboard.items.length === 0) return; const pasteOffsetX = 20, pasteOffsetY = 20; const worldMousePaste = screenToWorld(globalScreenMouse.x, globalScreenMouse.y); let basePasteX, basePasteY; const canvasRect = canvasEl.getBoundingClientRect(); if (globalScreenMouse.x < canvasRect.left || globalScreenMouse.x > canvasRect.right || globalScreenMouse.y < canvasRect.top || globalScreenMouse.y > canvasRect.bottom || (globalScreenMouse.x === 0 && globalScreenMouse.y === 0)) { basePasteX = appClipboard.anchor.left + pasteOffsetX; basePasteY = appClipboard.anchor.top + pasteOffsetY; } else { basePasteX = worldMousePaste.x; basePasteY = worldMousePaste.y; } const pastedNodesData = []; clearSelection(); appClipboard.items.forEach(itemData => { const newX = basePasteX + itemData.relativeLeft; const newY = basePasteY + itemData.relativeTop; const newNode = createNode(itemData.contentHTML, newX, newY, null, { recordUndo: false }); newNode.className = itemData.className; if (!newNode.classList.contains('node')) newNode.classList.add('node'); newNode.style.cssText += itemData.inlineStyle; newNode.style.width = `${itemData.width}px`; newNode.style.height = `${itemData.height}px`; newNode.style.left = `${newX}px`; newNode.style.top = `${newY}px`; updateNodeVisuals(newNode); selectedItems.add(newNode.id); pastedNodesData.push(getNodeDataForUndo(newNode)); }); recordAction({ type: 'pasteNodes', nodesData: pastedNodesData }); updateSelectionVisuals(); drawLines(); if (appClipboard.type === 'cut') appClipboard = { type: null, items: [], anchor: { left: 0, top: 0 } }; }
-    
-    function handleLoadDiagram(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const data = JSON.parse(e.target.result); if (!data.nodes || !data.connections) { alert('Arquivo de diagrama inválido.'); return; } undoStack = []; redoStack = []; updateUndoRedoButtons(); selectedItems.clear(); selectedConnections.clear(); editingNode = null; hideToolbar(); svg.innerHTML = ''; container.innerHTML = ''; connections = []; viewport = data.viewport || { scale: 1.0, panX: 0, panY: 0 }; ({ color: currentLineColor, width: currentLineStrokeWidth } = data.lineStyle || { color: '#60a5fa', width: 2.5 }); lineColorInput.value = currentLineColor; lineWidthInput.value = currentLineStrokeWidth; const gStyles = data.globalNodeStyles || {}; globalNodeBackgroundColor = gStyles.backgroundColor || '#FFFFFF'; globalNodeBorderColor = gStyles.borderColor || '#E5E7EB'; globalNodeBorderWidth = gStyles.borderWidth ?? 1; globalNodeShape = gStyles.shape || 'rectangle'; globalNodeBgColorInput.value = globalNodeBackgroundColor; globalNodeBorderColorInput.value = globalNodeBorderColor; globalNodeBorderWidthInput.value = globalNodeBorderWidth; globalNodeShapeSelect.value = globalNodeShape; let maxLoadedIdNum = -1; data.nodes.forEach(nodeData => { const newNode = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); newNode.className = 'node ' + nodeData.className; newNode.style.cssText = nodeData.inlineStyle; newNode.style.left = nodeData.left; newNode.style.top = nodeData.top; newNode.style.width = nodeData.width; newNode.style.height = nodeData.height; newNode.querySelector('.content').style.textAlign = nodeData.contentTextAlign || 'center'; updateNodeVisuals(newNode); const match = nodeData.id.match(/node-(\d+)/); if (match) maxLoadedIdNum = Math.max(maxLoadedIdNum, parseInt(match[1])); }); connections = data.connections; nodeCounter = data.nodeCounter ?? maxLoadedIdNum + 1; applyViewportTransform(); updateSelectionVisuals(); resetZoomTo100(); } catch (err) { console.error("Erro ao carregar diagrama:", err); alert('Falha ao carregar o arquivo do diagrama.'); } }; reader.readAsText(file); event.target.value = null; }
-    function handleSaveDiagram() { const diagramData = { nodes: Array.from(document.querySelectorAll('.node')).map(getNodeDataForUndo), connections: connections, nodeCounter: nodeCounter, lineStyle: { color: currentLineColor, width: currentLineStrokeWidth }, globalNodeStyles: { backgroundColor: globalNodeBackgroundColor, borderColor: globalNodeBorderColor, borderWidth: globalNodeBorderWidth, shape: globalNodeShape }, viewport: viewport }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(diagramData, null, 2)], { type: 'application/json' })); a.download = 'diagrama.json'; a.click(); URL.revokeObjectURL(a.href); }
+
+    function handleLoadDiagram(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!data.nodes || !data.connections) { showModal('Arquivo de diagrama inválido.'); return; }
+                undoStack = []; redoStack = []; updateUndoRedoButtons(); selectedItems.clear(); selectedConnections.clear(); editingNode = null; hideToolbar(); svg.innerHTML = ''; container.innerHTML = ''; connections = []; viewport = data.viewport || { scale: 1.0, panX: 0, panY: 0 };
+                let maxLoadedIdNum = -1;
+                data.nodes.forEach(nodeData => {
+                    const newNode = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true });
+                    newNode.className = 'node ' + nodeData.className;
+                    newNode.style.cssText = nodeData.inlineStyle;
+                    newNode.style.left = nodeData.left;
+                    newNode.style.top = nodeData.top;
+                    newNode.style.width = nodeData.width;
+                    newNode.style.height = nodeData.height;
+                    const contentDiv = newNode.querySelector('.content');
+                    contentDiv.style.textAlign = nodeData.contentTextAlign || 'center';
+                    contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
+                    updateNodeVisuals(newNode);
+                    const match = nodeData.id.match(/node-(\d+)/);
+                    if (match) maxLoadedIdNum = Math.max(maxLoadedIdNum, parseInt(match[1]));
+                });
+                connections = data.connections;
+                nodeCounter = data.nodeCounter ?? maxLoadedIdNum + 1;
+                applyViewportTransform();
+                updateSelectionVisuals();
+                resetZoomTo100();
+            } catch (err) {
+                console.error("Erro ao carregar diagrama:", err);
+                showModal('Falha ao carregar o arquivo do diagrama.');
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = null;
+    }
+    function handleSaveDiagram() { const diagramData = { nodes: Array.from(document.querySelectorAll('.node')).map(getNodeDataForUndo), connections: connections, nodeCounter: nodeCounter, viewport: viewport }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(diagramData, null, 2)], { type: 'application/json' })); a.download = 'diagrama.json'; a.click(); URL.revokeObjectURL(a.href); }
 
     // --- Printing ---
     function getDiagramBounds() { let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity; let hasElements = false; document.querySelectorAll('.node, .group-container').forEach(item => { hasElements = true; minX = Math.min(minX, item.offsetLeft); minY = Math.min(minY, item.offsetTop); maxX = Math.max(maxX, item.offsetLeft + item.offsetWidth); maxY = Math.max(maxY, item.offsetTop + item.offsetHeight); }); if (!hasElements) return { x: 0, y: 0, width: A4_WIDTH_PX, height: A4_HEIGHT_PX, isEmpty: true }; const padding = 20; return { x: minX - padding, y: minY - padding, width: (maxX - minX) + 2 * padding, height: (maxY - minY) + 2 * padding, isEmpty: false }; }
     function setupForPrint() { originalViewportBeforePrint = { ...viewport }; viewport.scale = 1.0; viewport.panX = 0; viewport.panY = 0; panZoomContainer.style.width = `${a4PageGuideRect.getAttribute('width')}px`; panZoomContainer.style.height = `${a4PageGuideRect.getAttribute('height')}px`; svgContainer.style.width = `${a4PageGuideRect.getAttribute('width')}px`; svgContainer.style.height = `${a4PageGuideRect.getAttribute('height')}px`; svg.setAttribute('width', a4PageGuideRect.getAttribute('width')); svg.setAttribute('height', a4PageGuideRect.getAttribute('height')); applyViewportTransform(); }
     function cleanupAfterPrint() {
-        // Restore container dimensions to be responsive again
-        panZoomContainer.style.width = '100%';
-        panZoomContainer.style.height = '100%';
-        svgContainer.style.width = '100%';
-        svgContainer.style.height = '100%';
-        svg.setAttribute('width', '100%');
-        svg.setAttribute('height', '100%');
-    
-        // Call the function that resets view to 100%
-        resetZoomTo100(); 
-        
-        // Nullify the saved state, as we don't need it anymore
+        panZoomContainer.style.width = '100%'; panZoomContainer.style.height = '100%';
+        svgContainer.style.width = '100%'; svgContainer.style.height = '100%';
+        svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%');
+        resetZoomTo100();
         originalViewportBeforePrint = null;
     }
-    
+
     // --- Event Handlers: Mouse, Keyboard, General ---
-    function handleNodeDblClick(e) { e.stopPropagation(); const node = e.currentTarget; if (editingNode && editingNode !== node) { editingNode.querySelector('.content').blur(); } editingNode = node; node.classList.add('editing'); const contentDiv = node.querySelector('.content'); contentDiv.contentEditable = true; contentDiv.focus(); showToolbar(node); const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(contentDiv); selection.removeAllRanges(); selection.addRange(range); }
-    function handleFocusOutOnContainer(e) { const node = e.target.closest('.node.editing'); if (!node || !editingNode) return; const isFocusGoingToToolbar = toolbar.contains(e.relatedTarget); if (!isFocusGoingToToolbar) { const originalContent = node.dataset.originalContentForUndo; const newContent = e.target.innerHTML; if (originalContent !== newContent) recordAction({ type: 'changeContent', nodeId: node.id, oldContent: originalContent, newContent: newContent }); delete node.dataset.originalContentForUndo; node.classList.remove('editing'); e.target.contentEditable = false; editingNode = null; hideToolbar(); } }
-    function handleInteractionEnd(e) { if (isPanning) { isPanning = false; canvasEl.style.cursor = 'default'; return; } let actionRecorded = false; if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const exists = connections.some(c => (c.from === from.id && c.to === to.id) || (c.from === to.id && c.to === from.id)); if (!exists) { const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else if (toolbar.style.visibility === 'visible') hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
-    
+    function handleGroupDblClick(e) {
+        const group = e.target.closest('.group-container');
+        if (group) {
+            e.stopPropagation();
+            hideMultiSelectToolbar();
+            
+            groupContextMenu.style.left = `${e.clientX + 5}px`;
+            groupContextMenu.style.top = `${e.clientY + 5}px`;
+            groupContextMenu.classList.remove('hidden');
+            groupContextMenu.dataset.targetGroupId = group.id;
+        }
+    }
+
+    function hideGroupContextMenu() {
+        groupContextMenu.classList.add('hidden');
+    }
+
+    container.addEventListener('dblclick', handleGroupDblClick);
+    contextUngroupBtn.addEventListener('click', () => {
+        const targetGroupId = groupContextMenu.dataset.targetGroupId;
+        if (targetGroupId) {
+            selectedItems.clear();
+            selectedItems.add(targetGroupId);
+            handleUngroup();
+        }
+        hideGroupContextMenu();
+    });
+
+
+    function handleNodeDblClick(e) { 
+        e.stopPropagation(); 
+        const node = e.currentTarget;
+        if(e.target.closest('.group-container')) {
+            e.stopPropagation();
+        }
+        if (editingNode && editingNode !== node) { editingNode.querySelector('.content').blur(); } 
+        editingNode = node; 
+        node.classList.add('editing'); 
+        const contentDiv = node.querySelector('.content'); 
+        contentDiv.contentEditable = true; 
+        contentDiv.focus(); 
+        updateToolbarState(node); 
+        showToolbar(node); 
+        const selection = window.getSelection(); 
+        const range = document.createRange(); 
+        range.selectNodeContents(contentDiv); 
+        selection.removeAllRanges(); 
+        selection.addRange(range); 
+    }
+
+    function finishEditing(node) {
+        if (!node) return;
+        const originalContent = node.dataset.originalContentForUndo;
+        const newContent = node.querySelector('.content').innerHTML;
+        if (originalContent !== newContent) {
+            recordAction({ type: 'changeContent', nodeId: node.id, oldContent: originalContent, newContent: newContent });
+        }
+        delete node.dataset.originalContentForUndo;
+        node.classList.remove('editing');
+        node.querySelector('.content').contentEditable = false;
+        if (editingNode === node) { editingNode = null; }
+        hideToolbar();
+    }
+
+    function handleNodeBlur(e) {
+        setTimeout(() => {
+            const focusIsOnToolbar = document.activeElement && toolbar.contains(document.activeElement);
+            if (editingNode && !focusIsOnToolbar) {
+                finishEditing(editingNode);
+            }
+        }, 100);
+    }
+
+    function handleInteractionEnd(e) { if (isPanning) { isPanning = false; canvasEl.style.cursor = 'default'; return; } let actionRecorded = false; if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) { const endTarget = e.target; if (endTarget.classList.contains('connector') && endTarget.dataset.nodeId !== actionState.target.id) { const from = { id: actionState.target.id, pos: actionState.linkStartPos }; const to = { id: endTarget.dataset.nodeId, pos: endTarget.dataset.position }; const exists = connections.some(c => (c.from === from.id && c.to === to.id) || (c.from === to.id && c.to === from.id)); if (!exists) { const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth }; connections.push(newConnection); recordAction({ type: 'createConnection', connectionData: newConnection }); actionRecorded = true; } } } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { editingNode.querySelector('.content').blur(); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
+
     // --- Initial Event Listener Setup ---
     window.addEventListener('beforeprint', setupForPrint);
     window.addEventListener('afterprint', cleanupAfterPrint);
@@ -715,16 +1323,22 @@
     zoomInBtnManual.addEventListener('click', () => handleManualZoom(true));
     zoomOutBtnManual.addEventListener('click', () => handleManualZoom(false));
     zoomResetBtnManual.addEventListener('click', resetZoomTo100);
-    container.addEventListener('focusout', handleFocusOutOnContainer);
 
-    document.addEventListener('mousedown', e => { 
+    document.addEventListener('mousedown', e => {
+        if (!groupContextMenu.classList.contains('hidden') && !groupContextMenu.contains(e.target)) {
+            hideGroupContextMenu();
+        }
+
+        if (multiSelectToolbar.contains(e.target) || connectionToolbar.contains(e.target)) {
+            return;
+        }
+        if (editingNode && !toolbar.contains(e.target) && !editingNode.contains(e.target)) {
+            finishEditing(editingNode);
+        }
         const clickedConnectionGroup = e.target.closest('g.connection-group');
         if (clickedConnectionGroup) {
             e.stopPropagation();
-            if (selectedItems.size > 0) {
-                selectedItems.clear();
-                updateSelectionVisuals();
-            }
+            if (selectedItems.size > 0) { selectedItems.clear(); updateSelectionVisuals(); }
             const connIndex = parseInt(clickedConnectionGroup.dataset.connIndex, 10);
             const isCtrl = e.ctrlKey || e.metaKey;
             if (!isCtrl) {
@@ -733,114 +1347,328 @@
                     selectedConnections.add(connIndex);
                 }
             } else {
-                if (selectedConnections.has(connIndex)) {
-                    selectedConnections.delete(connIndex);
-                } else {
-                    selectedConnections.add(connIndex);
-                }
+                if (selectedConnections.has(connIndex)) { selectedConnections.delete(connIndex); }
+                else { selectedConnections.add(connIndex); }
             }
             drawLines();
+            updateSelectionVisuals();
             return;
         }
-
         const clickedItem = e.target.closest('.node, .group-container');
-        
-        let isEditableContentClick = editingNode?.querySelector('.content')?.contains(e.target); 
-        if (isEditableContentClick && e.shiftKey && e.button === 0) { isPanning = true; lastPanPosition = { x: e.clientX, y: e.clientY }; canvasEl.style.cursor = 'grabbing'; e.preventDefault(); return; } 
-        if (isEditableContentClick) { return; }
-
-        actionState.startX = e.clientX; actionState.startY = e.clientY; actionState.isCtrl = e.ctrlKey || e.metaKey; actionState.moved = false; 
-        
-        if (clickedItem) {
-            if (selectedConnections.size > 0) {
-                selectedConnections.clear();
-                drawLines();
+        let isEditableContentClick = editingNode?.querySelector('.content')?.contains(e.target);
+        if (isEditableContentClick) {
+            if (e.shiftKey && e.button === 0) {
+                isPanning = true;
+                lastPanPosition = { x: e.clientX, y: e.clientY };
+                canvasEl.style.cursor = 'grabbing';
+                e.preventDefault();
             }
+            return;
+        }
+        actionState.startX = e.clientX; actionState.startY = e.clientY; actionState.isCtrl = e.ctrlKey || e.metaKey; actionState.moved = false;
+        if (clickedItem) {
+            if (selectedConnections.size > 0) { selectedConnections.clear(); drawLines(); updateSelectionVisuals(); }
             const target = e.target;
             if (clickedItem.classList.contains('node') && !clickedItem.classList.contains('in-group')) {
                 if (target.classList.contains('connector')) { e.stopPropagation(); actionState = { ...actionState, type: 'linking', target: clickedItem, linkStartPos: target.dataset.position }; document.body.style.cursor = 'crosshair'; }
                 else if (target.classList.contains('resize-handle')) { e.stopPropagation(); actionState = { ...actionState, type: 'resizing', target: clickedItem, startWidth: clickedItem.offsetWidth, startHeight: clickedItem.offsetHeight }; document.body.style.cursor = 'se-resize'; }
                 else { actionState = { ...actionState, type: 'potential-drag', target: clickedItem }; }
-            } else { // Is a group or a node inside a group
+            } else {
                  actionState = { ...actionState, type: 'potential-drag', target: clickedItem.closest('.group-container') || clickedItem };
             }
-        } else {
-            actionState.type = 'potential-marquee';
-        } 
+        } else { actionState.type = 'potential-marquee'; }
     });
     document.addEventListener('mousemove', e => { globalScreenMouse = { x: e.clientX, y: e.clientY }; if (isPanning) { const dx = e.clientX - lastPanPosition.x, dy = e.clientY - lastPanPosition.y; viewport.panX += dx; viewport.panY += dy; lastPanPosition = { x: e.clientX, y: e.clientY }; applyViewportTransform(); return; } if (!actionState.type) return; if (!actionState.moved && (Math.abs(e.clientX - actionState.startX) > DRAG_THRESHOLD || Math.abs(e.clientY - actionState.startY) > DRAG_THRESHOLD)) { actionState.moved = true; if (actionState.type === 'potential-drag' && actionState.target) { actionState.type = 'dragging'; actionState.target.classList.add('dragging'); document.body.style.cursor = 'grabbing'; const itemToSelect = actionState.target; if (!actionState.isCtrl && !selectedItems.has(itemToSelect.id)) { selectItem(itemToSelect, false); } const targets = selectedItems.has(itemToSelect.id) ? Array.from(selectedItems).map(id => document.getElementById(id)) : [itemToSelect]; actionState.initialPositions = targets.filter(Boolean).map(el => ({ element: el, initialLeft: el.offsetLeft, initialTop: el.offsetTop })); } else if (actionState.type === 'potential-marquee') { actionState.type = 'marquee'; marquee.style.visibility = 'visible'; } } switch (actionState.type) { case 'dragging': actionState.initialPositions.forEach(pos => { pos.element.style.left = `${pos.initialLeft + (e.clientX - actionState.startX) / viewport.scale}px`; pos.element.style.top = `${pos.initialTop + (e.clientY - actionState.startY) / viewport.scale}px`; }); drawLines(); break; case 'resizing': if (actionState.target) { actionState.target.style.width = `${Math.max(100, actionState.startWidth + (e.clientX - actionState.startX) / viewport.scale)}px`; actionState.target.style.height = `${Math.max(40, actionState.startHeight + (e.clientY - actionState.startY) / viewport.scale)}px`; drawLines(); } break; case 'linking': drawLines(); break; case 'marquee': const x = Math.min(e.clientX, actionState.startX), y = Math.min(e.clientY, actionState.startY), w = Math.abs(e.clientX - actionState.startX), h = Math.abs(e.clientY - actionState.startY); marquee.style.left = `${x}px`; marquee.style.top = `${y}px`; marquee.style.width = `${w}px`; marquee.style.height = `${h}px`; break; } if (actionState.type && !actionState.type.startsWith('potential')) e.preventDefault(); });
     document.addEventListener('mouseup', handleInteractionEnd);
-    document.addEventListener('keydown', e => { const activeEl = document.activeElement; const isEditingText = activeEl?.closest('.node.editing .content'); const isInputFocused = ['INPUT', 'SELECT'].includes(activeEl?.tagName); if (e.key !== 'Escape' && (activeEl?.closest('.dropdown-panel:not(.hidden)') || activeEl?.closest('.menu-trigger-button'))) if(!(e.ctrlKey || e.metaKey || ['Delete', 'Backspace', 'Enter'].includes(e.key))) return; if (e.ctrlKey || e.metaKey) { if (!isEditingText && !isInputFocused) { switch (e.key.toLowerCase()) { case 'c': handleCopy(); e.preventDefault(); break; case 'x': handleCut(); e.preventDefault(); break; case 'v': handlePaste(); e.preventDefault(); break; case 'a': e.preventDefault(); selectedItems.clear(); document.querySelectorAll('.node').forEach(n => selectedItems.add(n.id)); updateSelectionVisuals(); break; case 'z': handleUndo(); e.preventDefault(); break; case 'y': handleRedo(); e.preventDefault(); break; case 'g': e.preventDefault(); if (e.shiftKey) { handleUngroup(); } else { handleGroup(); } break; } } } if (isEditingText && (e.ctrlKey || e.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter', 'Tab', 'Escape', 'Home', 'End'].includes(e.key))) return; if (isInputFocused && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter', 'Tab', 'Escape'].includes(e.key)) return; if (selectedItems.size > 0 && !isEditingText && !isInputFocused) { let moved = false; switch (e.key) { case 'ArrowUp': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop - KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowDown': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop + KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowLeft': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft - KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowRight': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft + KEY_MOVE_STEP}px`; }); moved = true; break; } if (moved) { e.preventDefault(); drawLines(); } } if (['Delete', 'Backspace'].includes(e.key) && !isEditingText && !isInputFocused) { if (selectedItems.size > 0 || selectedConnections.size > 0) { e.preventDefault(); handleDelete(); } } if (e.key === 'Escape' && !isEditingText && !isInputFocused) { clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); } });
+    document.addEventListener('keydown', e => { const activeEl = document.activeElement; const isEditingText = activeEl?.closest('.node.editing .content'); const isInputFocused = ['INPUT', 'SELECT'].includes(activeEl?.tagName); if (e.key !== 'Escape' && (activeEl?.closest('.dropdown-panel:not(.hidden)') || activeEl?.closest('.menu-trigger-button'))) if(!(e.ctrlKey || e.metaKey || ['Delete', 'Backspace', 'Enter'].includes(e.key))) return; if (e.ctrlKey || e.metaKey) { if (!isEditingText && !isInputFocused) { switch (e.key.toLowerCase()) { case 'c': handleCopy(); e.preventDefault(); break; case 'x': handleCut(); e.preventDefault(); break; case 'v': handlePaste(); e.preventDefault(); break; case 'a': e.preventDefault(); selectedItems.clear(); document.querySelectorAll('.node, .group-container').forEach(n => selectedItems.add(n.id)); updateSelectionVisuals(); break; case 'z': handleUndo(); e.preventDefault(); break; case 'y': handleRedo(); e.preventDefault(); break; case 'g': e.preventDefault(); if (e.shiftKey) { handleUngroup(); } else { handleGroup(); } break; } } } if (isEditingText && (e.ctrlKey || e.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter', 'Tab', 'Escape', 'Home', 'End'].includes(e.key))) return; if (isInputFocused && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter', 'Tab', 'Escape'].includes(e.key)) return; if (selectedItems.size > 0 && !isEditingText && !isInputFocused) { let moved = false; switch (e.key) { case 'ArrowUp': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop - KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowDown': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop + KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowLeft': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft - KEY_MOVE_STEP}px`; }); moved = true; break; case 'ArrowRight': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft + KEY_MOVE_STEP}px`; }); moved = true; break; } if (moved) { e.preventDefault(); drawLines(); } } if (['Delete', 'Backspace'].includes(e.key) && !isEditingText && !isInputFocused) { if (selectedItems.size > 0 || selectedConnections.size > 0) { e.preventDefault(); handleDelete(); } } if (e.key === 'Escape' && !isEditingText && !isInputFocused) { clearSelection(); if (editingNode) editingNode.querySelector('.content').blur(); else hideToolbar(); hideGroupContextMenu();} });
     document.addEventListener('selectionchange', () => { if (editingNode) { const sel = window.getSelection(); if (sel.rangeCount > 0 && editingNode.querySelector('.content').contains(sel.anchorNode)) savedRange = sel.getRangeAt(0).cloneRange(); } });
     canvasEl.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); const rect = canvasEl.getBoundingClientRect(); const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top; const worldX = (mouseX - viewport.panX) / viewport.scale, worldY = (mouseY - viewport.panY) / viewport.scale; const factor = e.deltaY < 0 ? (1 + 0.1) : (1 / (1 + 0.1)); const newScale = Math.max(MIN_ZOOM_SCALE, Math.min(viewport.scale * factor, MAX_ZOOM_SCALE)); viewport.panX = mouseX - worldX * newScale; viewport.panY = mouseY - worldY * newScale; viewport.scale = newScale; applyViewportTransform(); } });
 
     // --- Page Settings Event Listeners ---
-    pageSizeSelect.addEventListener('change', () => {
-        if (pageSizeSelect.value === 'custom') {
-            customSizeInputs.classList.remove('hidden');
-        } else {
-            customSizeInputs.classList.add('hidden');
-        }
-    });
-    applyPageSettings.addEventListener('click', () => {
-        updatePageGuide();
-        fitToA4PageGuide(); // Re-fit the view when settings are applied
-        document.getElementById('page-menu').classList.add('hidden');
-    });
-
+    pageSizeSelect.addEventListener('change', () => { if (pageSizeSelect.value === 'custom') { customSizeInputs.classList.remove('hidden'); } else { customSizeInputs.classList.add('hidden'); } });
+    applyPageSettings.addEventListener('click', () => { updatePageGuide(); fitToA4PageGuide(); document.getElementById('page-menu').classList.add('hidden'); });
     addNodeButton.addEventListener('click', () => { let refNode = null; if (selectedItems.size === 1) refNode = document.getElementById(selectedItems.values().next().value); else if (document.querySelectorAll('.node').length > 0) refNode = Array.from(document.querySelectorAll('.node')).reduce((last, curr) => parseInt(curr.id.split('-')[1]) > parseInt(last.id.split('-')[1]) ? curr : last); let newNodeX, newNodeY; if (refNode) { newNodeX = refNode.offsetLeft + refNode.offsetWidth + 30; newNodeY = refNode.offsetTop; } else { const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2); newNodeX = worldCenter.x - 50; newNodeY = worldCenter.y - 20; const pageW = a4PageGuideRect.getAttribute('width'); const pageH = a4PageGuideRect.getAttribute('height'); newNodeX = Math.max(20, Math.min(newNodeX, pageW - 120)); newNodeY = Math.max(20, Math.min(newNodeY, pageH - 60)); } const newNode = createNode('Novo Item', newNodeX, newNodeY); clearSelection(); selectedItems.add(newNode.id); updateSelectionVisuals(); });
     saveDiagramButton.addEventListener('click', handleSaveDiagram);
     loadDiagramInput.addEventListener('change', handleLoadDiagram);
     printToPDFBtn.addEventListener('click', () => window.print());
-    lineColorInput.addEventListener('input', (e) => { currentLineColor = e.target.value; drawLines(); });
-    lineWidthInput.addEventListener('input', (e) => { const w = parseFloat(e.target.value); if (!isNaN(w) && w >= 0.5 && w <= 20) { currentLineStrokeWidth = w; drawLines(); } });
-    lineWidthInput.addEventListener('change', (e) => { let w = parseFloat(e.target.value); w = Math.max(0.5, Math.min(w, 20)); currentLineStrokeWidth = w; e.target.value = w; drawLines(); });
-    globalNodeBgColorInput.addEventListener('input', (e) => { globalNodeBackgroundColor = e.target.value; });
-    globalNodeBorderColorInput.addEventListener('input', (e) => { globalNodeBorderColor = e.target.value; });
-    globalNodeBorderWidthInput.addEventListener('input', (e) => { let w = parseInt(e.target.value, 10); if (!isNaN(w) && w >= 0 && w <= 15) globalNodeBorderWidth = w; });
-    globalNodeBorderWidthInput.addEventListener('change', (e) => { let w = parseInt(e.target.value, 10); w = Math.max(0, Math.min(w, 15)); globalNodeBorderWidth = w; e.target.value = w; });
-    globalNodeShapeSelect.addEventListener('change', (e) => { globalNodeShape = e.target.value; });
-    applyGlobalsToSelectedBtn.addEventListener('click', applyGlobalStylesToSelectedNodes);
-    applyGlobalsToGroupsBtn.addEventListener('click', applyGlobalStylesToSelectedGroups);
     deleteBtn.addEventListener('click', handleDelete);
-    groupBtn.addEventListener('click', handleGroup);
-    ungroupBtn.addEventListener('click', handleUngroup);
     
-    // CORREÇÃO: Impede que cliques nos menus se propaguem e desmarquem itens
-    document.getElementById('top-buttons-container').addEventListener('mousedown', e => e.stopPropagation());
-    toolbar.addEventListener('mousedown', e => e.stopPropagation());
+    toolbar.addEventListener('mousedown', e => {
+        if (e.target.closest('select, input, button')) {
+            return;
+        }
+        e.preventDefault();
+    });
 
-    document.getElementById('top-buttons-container').addEventListener('click', e => { const alignBtn = e.target.closest('button[data-align]'); const distBtn = e.target.closest('button[data-distribute]'); if (alignBtn) alignSelected(alignBtn.dataset.align); else if (distBtn) distributeSelected(distBtn.dataset.distribute); });
-    toolbar.querySelectorAll('button, input, div.color-swatch').forEach(el => el.addEventListener('mousedown', e => e.preventDefault()));
-    toolbar.addEventListener('change', e => { const el = e.target, style = el.dataset.style, cmd = el.dataset.cmd, val = el.value; if (style) applyNodeStyle(style, val); else if (cmd) { if (cmd === 'fontSize') { if (!editingNode) return; const sizeMap = { '2': '0.8em', '3': '1.0em', '5': '1.5em', '7': '2.0em' }; editingNode.querySelector('.content').style.fontSize = sizeMap[val] || '1.0em'; } else applyFormat(cmd, val); } });
-    toolbar.addEventListener('input', e => { const el = e.target, style = el.dataset.style; if (style && (el.type === 'color' || el.type === 'number')) applyNodeStyle(style, el.value); });
-    toolbar.addEventListener('click', e => { const btn = e.target.closest('button[data-cmd], button[data-style], button[data-textalign]'); if (btn?.dataset.cmd) applyFormat(btn.dataset.cmd); else if (btn?.dataset.style) applyNodeStyle(btn.dataset.style); else if (btn?.dataset.textalign) applyTextAlign(btn.dataset.textalign); else { const sw = e.target.closest('.color-swatch'); if (sw) applyFormat('foreColor', sw.dataset.color); } });
+    toolbar.addEventListener('click', e => {
+        const swatch = e.target.closest('.color-swatch');
+        if (swatch && editingNode) {
+            const palette = swatch.closest('.palette');
+            const color = swatch.dataset.color;
+
+            if (palette.id === 'palette-text') {
+                applyFormat('foreColor', color);
+                document.getElementById('customColor').value = color;
+            } else if (palette.id === 'palette-bg') {
+                applyNodeStyle('backgroundColor', color);
+                toolbar.querySelector('input[data-style="backgroundColor"]').value = color;
+            } else if (palette.id === 'palette-border') {
+                applyNodeStyle('borderColor', color);
+                toolbar.querySelector('input[data-style="borderColor"]').value = color;
+            }
+            return;
+        }
+
+        const btn = e.target.closest('button');
+        if (btn) {
+            const cmd = btn.dataset.cmd;
+            const style = btn.dataset.style;
+            const textAlign = btn.dataset.textalign;
+
+            if (cmd) {
+                applyFormat(cmd);
+            } else if (textAlign) {
+                applyTextAlign(textAlign);
+            } else if (style === 'transparent') {
+                toggleNodeTransparency();
+            }
+        }
+    });
+
+    toolbar.addEventListener('change', e => {
+        const el = e.target;
+        const style = el.dataset.style;
+        const cmd = el.dataset.cmd;
+        const val = el.value;
+
+        if (cmd && editingNode) {
+            applyFormat(cmd, val);
+        } else if (style && editingNode) {
+            applyNodeStyle(style, val);
+        }
+        
+        if (editingNode && (el.tagName === 'SELECT' || el.type === 'color')) {
+            editingNode.querySelector('.content').focus();
+        }
+    });
+    toolbar.addEventListener('input', e => { const el = e.target, style = el.dataset.style; if (style && el.type === 'number') applyNodeStyle(style, el.value); });
     customColorInput.addEventListener('input', e => applyFormat('foreColor', e.target.value));
 
+    // --- Listeners do Painel Flutuante ---
+    applyBulkChangesBtn.addEventListener('click', applyBulkStyles);
+    multiSelectToolbar.addEventListener('click', e => {
+        const swatch = e.target.closest('.color-swatch');
+        if (swatch) {
+            const palette = swatch.closest('.palette');
+            const color = swatch.dataset.color;
+            if (palette.id === 'multi-palette-bg') {
+                multiSelectToolbar.querySelector('input[data-multi-style="backgroundColor"]').value = color;
+            } else if (palette.id === 'multi-palette-border') {
+                multiSelectToolbar.querySelector('input[data-multi-style="borderColor"]').value = color;
+            }
+            return;
+        }
+
+        const button = e.target.closest('button');
+        if (!button || button.id === 'applyBulkChanges') return;
+
+        const alignType = button.dataset.align;
+        const distributeType = button.dataset.distribute;
+        const action = button.dataset.action;
+
+        if (alignType) alignSelected(alignType);
+        else if (distributeType) distributeSelected(distributeType);
+        else if (action === 'group') handleGroup();
+        else if (action === 'ungroup') handleUngroup();
+    });
+    
+    // --- Listeners do Painel de Conexão ---
+    connectionToolbar.addEventListener('input', applyConnectionStyles);
+    connectionToolbar.addEventListener('click', e => {
+        const swatch = e.target.closest('.color-swatch');
+        if (swatch) {
+            const color = swatch.dataset.color;
+            connectionToolbar.querySelector('input[data-conn-style="color"]').value = color;
+            applyConnectionStyles(); // Aplica a cor imediatamente
+        }
+    });
+
+
     // --- Undo/Redo Handlers ---
-    function handleUndo() { if (undoStack.length === 0) return; const action = undoStack.pop(); let needsRedraw = false; switch (action.type) { case 'createNode': document.getElementById(action.nodeId)?.remove(); connections = connections.filter(c => c.from !== action.nodeId && c.to !== action.nodeId); needsRedraw = true; break; case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; node.querySelector('.content').style.textAlign = nodeData.contentTextAlign; updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break; case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break; case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.oldWidth; nResize.style.height = action.oldHeight; } needsRedraw = true; break; case 'createConnection': connections.pop(); needsRedraw = true; break; case 'deleteConnections': connections.push(...action.deletedConns); needsRedraw = true; break; case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.oldContent; break; case 'pasteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); connections = connections.filter(c => c.from !== nData.id && c.to !== nData.id); }); needsRedraw = true; break; } recordAction(action, true, false); if (needsRedraw) drawLines(); updateSelectionVisuals(); }
-    function handleRedo() { if (redoStack.length === 0) return; const action = redoStack.pop(); let needsRedraw = false; switch (action.type) { case 'createNode': case 'pasteNodes': const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData; nodesToCreate.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; node.querySelector('.content').style.textAlign = nodeData.contentTextAlign; updateNodeVisuals(node); }); needsRedraw = true; break; case 'deleteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); }); const nodesToFilter = new Set(action.nodesData.map(nd => nd.id)); connections = connections.filter(c => !nodesToFilter.has(c.from) && !nodesToFilter.has(c.to)); selectedItems.clear(); needsRedraw = true; break; case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.newLeft; n.style.top = c.newTop; } }); needsRedraw = true; break; case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.newWidth; nResize.style.height = action.newHeight; } needsRedraw = true; break; case 'createConnection': if (action.connectionData) connections.push(action.connectionData); needsRedraw = true; break; case 'deleteConnections': const connsToRedoDelete = new Set(action.deletedConns.map(c => JSON.stringify(c))); connections = connections.filter(c => !connsToRedoDelete.has(JSON.stringify(c))); selectedConnections.clear(); needsRedraw = true; break; case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.newContent; break; } recordAction(action, false, true); if (needsRedraw) drawLines(); updateSelectionVisuals(); }
+    function handleUndo() {
+        if (undoStack.length === 0) return;
+        const action = undoStack.pop();
+        let needsRedraw = false;
+        switch (action.type) {
+            case 'createNode': document.getElementById(action.nodeId)?.remove(); connections = connections.filter(c => c.from !== action.nodeId && c.to !== action.nodeId); needsRedraw = true; break;
+            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === cData.to)) { connections.push(cData); } }); needsRedraw = true; break;
+            case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break;
+            case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.oldWidth; nResize.style.height = action.oldHeight; } needsRedraw = true; break;
+            case 'createConnection': connections.pop(); needsRedraw = true; break;
+            case 'deleteConnections': connections.push(...action.deletedConns); needsRedraw = true; break;
+            case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.oldContent; break;
+            case 'pasteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); connections = connections.filter(c => c.from !== nData.id && c.to !== nData.id); }); needsRedraw = true; break;
+            case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.oldValue); } }); needsRedraw = true; break;
+            case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', change.oldStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', change.oldStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', parseInt(change.oldStyles.borderWidth) || 0); applyStyleToSingleNode(node, 'shape', change.oldStyles.shape); } }); needsRedraw = true; break;
+            case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = change.oldStyles.color; conn.width = change.oldStyles.width; } }); needsRedraw = true; break;
+            
+            case 'group':
+                const groupToUndo = document.getElementById(action.groupId);
+                if (groupToUndo) {
+                    const itemsToRestore = [];
+                    action.groupedItemsData.forEach(data => {
+                        const item = document.getElementById(data.id);
+                        if(item) itemsToRestore.push(item);
+                    });
+                    
+                    itemsToRestore.forEach(item => {
+                        const oldData = action.groupedItemsData.find(d => d.id === item.id);
+                        container.appendChild(item);
+                        item.style.left = oldData.left;
+                        item.style.top = oldData.top;
+                        if (item.classList.contains('node')) {
+                            item.classList.remove('in-group');
+                        }
+                    });
+                    groupToUndo.remove();
+                }
+                selectedItems.clear();
+                action.groupedItemsData.forEach(data => selectedItems.add(data.id));
+                needsRedraw = true;
+                break;
+
+            case 'ungroup':
+                action.ungroupedData.forEach(data => {
+                    const group = document.createElement('div');
+                    group.id = data.groupData.id;
+                    group.className = 'group-container';
+                    group.style.left = data.groupData.left;
+                    group.style.top = data.groupData.top;
+                    group.style.width = data.groupData.width;
+                    group.style.height = data.groupData.height;
+                    container.appendChild(group);
+
+                    data.childrenData.forEach(childData => {
+                        const child = document.getElementById(childData.id);
+                        if (child) {
+                            group.appendChild(child);
+                            child.style.left = childData.left;
+                            child.style.top = childData.top;
+                            if (child.classList.contains('node')) {
+                                child.classList.add('in-group');
+                            }
+                        }
+                    });
+                });
+                selectedItems.clear();
+                action.ungroupedData.forEach(data => selectedItems.add(data.groupData.id));
+                needsRedraw = true;
+                break;
+        }
+        recordAction(action, true, false);
+        if (needsRedraw) drawLines();
+        updateSelectionVisuals();
+    }
+
+    function handleRedo() {
+        if (redoStack.length === 0) return;
+        const action = redoStack.pop();
+        let needsRedraw = false;
+        switch (action.type) {
+            case 'createNode': case 'pasteNodes': const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData; nodesToCreate.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; updateNodeVisuals(node); }); needsRedraw = true; break;
+            case 'deleteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); }); const nodesToFilter = new Set(action.nodesData.map(nd => nd.id)); connections = connections.filter(c => !nodesToFilter.has(c.from) && !nodesToFilter.has(c.to)); selectedItems.clear(); needsRedraw = true; break;
+            case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.newLeft; n.style.top = c.newTop; } }); needsRedraw = true; break;
+            case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.newWidth; nResize.style.height = action.newHeight; } needsRedraw = true; break;
+            case 'createConnection': if (action.connectionData) connections.push(action.connectionData); needsRedraw = true; break;
+            case 'deleteConnections': const connsToRedoDelete = new Set(action.deletedConns.map(c => JSON.stringify(c))); connections = connections.filter(c => !connsToRedoDelete.has(JSON.stringify(c))); selectedConnections.clear(); needsRedraw = true; break;
+            case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.newContent; break;
+            case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.newValue); } }); needsRedraw = true; break;
+            case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', action.newStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', action.newStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', action.newStyles.borderWidth); applyStyleToSingleNode(node, 'shape', action.newStyles.shape); } }); needsRedraw = true; break;
+            case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = action.newStyles.color; conn.width = action.newStyles.width; } }); needsRedraw = true; break;
+            
+            case 'group':
+                const groupContainer = document.createElement('div');
+                groupContainer.id = action.groupId;
+                groupContainer.className = 'group-container';
+                Object.assign(groupContainer.style, action.groupRect);
+                container.appendChild(groupContainer);
+                const groupLeft = parseFloat(action.groupRect.left);
+                const groupTop = parseFloat(action.groupRect.top);
+
+                action.groupedItemsData.forEach(data => {
+                    const item = document.getElementById(data.id);
+                    if (item) {
+                        groupContainer.appendChild(item);
+                        item.style.left = `${parseFloat(data.left) - groupLeft}px`;
+                        item.style.top = `${parseFloat(data.top) - groupTop}px`;
+                        if(item.classList.contains('node')) item.classList.add('in-group');
+                    }
+                });
+                selectedItems.clear();
+                selectedItems.add(action.groupId);
+                needsRedraw = true;
+                break;
+
+            case 'ungroup':
+                const allUngroupedIds = new Set();
+                action.ungroupedData.forEach(data => {
+                    const groupToRedoUngroup = document.getElementById(data.groupData.id);
+                    if (groupToRedoUngroup) {
+                        const groupAbsPos = getAbsolutePosition(groupToRedoUngroup);
+                        const childrenToMove = Array.from(groupToRedoUngroup.children);
+                        
+                        childrenToMove.forEach(child => {
+                             const oldChildData = data.childrenData.find(c => c.id === child.id);
+                             if (oldChildData) {
+                                const newLeft = groupAbsPos.x + parseFloat(oldChildData.left);
+                                const newTop = groupAbsPos.y + parseFloat(oldChildData.top);
+                                container.appendChild(child);
+                                child.style.left = `${newLeft}px`;
+                                child.style.top = `${newTop}px`;
+                                if(child.classList.contains('node')) child.classList.remove('in-group');
+                                allUngroupedIds.add(child.id);
+                             }
+                        });
+                        groupToRedoUngroup.remove();
+                    }
+                });
+                selectedItems.clear();
+                allUngroupedIds.forEach(id => selectedItems.add(id));
+                needsRedraw = true;
+                break;
+        }
+        recordAction(action, false, true);
+        if (needsRedraw) drawLines();
+        updateSelectionVisuals();
+    }
     undoBtn.addEventListener('click', handleUndo);
     redoBtn.addEventListener('click', handleRedo);
 
     // --- Initialization ---
+    function applyTheme() {
+        const root = document.documentElement;
+        root.style.setProperty('--color-primary-accent', themeColors.primaryAccent);
+        root.style.setProperty('--color-selection', themeColors.selection);
+        root.style.setProperty('--color-connection', themeColors.connection);
+        root.style.setProperty('--color-group-border', themeColors.groupBorder);
+        root.style.setProperty('--color-group-bg', themeColors.groupBg);
+        root.style.setProperty('--color-node-border-editing', themeColors.nodeBorderEditing);
+    }
     function initialize() {
-        lineColorInput.value = currentLineColor;
-        lineWidthInput.value = currentLineStrokeWidth;
-        globalNodeBgColorInput.value = globalNodeBackgroundColor;
-        globalNodeBorderColorInput.value = globalNodeBorderColor;
-        globalNodeBorderWidthInput.value = globalNodeBorderWidth;
-        globalNodeShapeSelect.value = globalNodeShape;
+        applyTheme();
         updateUndoRedoButtons();
-        isA4ModeActive = true; 
+        isA4ModeActive = true;
         viewport.scale = 1.0;
         viewport.panX = (canvasEl.clientWidth > A4_WIDTH_PX) ? (canvasEl.clientWidth / 2) - (A4_WIDTH_PX / 2) : A4_VIEW_PADDING;
         viewport.panY = A4_VIEW_PADDING;
-        
-        updatePageGuide(); 
+        updatePageGuide();
         applyViewportTransform();
-    }
 
+        makeDraggable(toolbar, document.getElementById('toolbar-header'));
+        makeDraggable(multiSelectToolbar, document.getElementById('multi-select-toolbar-header'));
+        makeDraggable(groupContextMenu, document.getElementById('group-context-header'));
+        makeDraggable(connectionToolbar, document.getElementById('connection-toolbar-header'));
+    }
     initialize();
   </script>
 </body>
