@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Editor Interativo com Grupos - Versão Final</title>
   <script src="https://cdn.tailwindcss.com"></script>
-
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style id="dynamic-print-style"></style>
 
   <style>
@@ -40,11 +40,13 @@
       padding: 0.5rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.5rem;
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
       position: absolute; min-width: 100px; min-height: 40px; cursor: grab;
-      display: flex; align-items: center; justify-content: center;
-      overflow: hidden; 
+      display: flex; /* Changed to flex */
+      align-items: center; /* Default vertical alignment */
+      justify-content: center; /* Default horizontal alignment */
+      overflow: hidden;
       overflow-wrap: break-word; word-wrap: break-word; hyphens: auto;
       transition: background-color 0.2s, border-color 0.2s, border-width 0.2s, border-radius 0.3s, box-shadow 0.2s, transform 0.2s;
-      pointer-events: all; 
+      pointer-events: all;
     }
     .node.node-image {
         padding: 0;
@@ -63,6 +65,7 @@
     .node .content b, .node .content strong { font-weight: bold; }
     .node .content i, .node .content em { font-style: italic; }
     .node.editing .content { pointer-events: auto; user-select: text; }
+    .node.editing .connector { opacity: 0 !important; pointer-events: none !important; } //Oculta os conectores quando o nó pai está em modo de edição de texto
     .node.dragging { cursor: grabbing; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); z-index: 1000; }
     .node.editing, .node.style-target { cursor: default; border-color: var(--color-node-border-editing); }
     .node.selected, .group-container.selected {
@@ -70,6 +73,7 @@
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-selection) 60%, transparent);
     }
     .node:not(.in-group):hover .connector { opacity: 1; transition: opacity 0.2s; }
+    .node:not(.in-group):hover .connector.center { opacity: 0.4; }
 
     .connector { opacity: 0; z-index: 5; pointer-events: all; transition: opacity 0.2s ease, background-color 0.2s, box-shadow 0.2s, transform 0.15s; }
     .node.in-group .connector { opacity: 0 !important; pointer-events: none !important; }
@@ -79,6 +83,8 @@
     .connector.bottom { bottom: -11px; left: 50%; transform: translateX(-50%); }
     .connector.left { left: -11px; top: 50%; transform: translateY(-50%); }
     .connector.right { right: -11px; top: 50%; transform: translateY(-50%); }
+    .connector.center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+    .connector.center.snap-target { transform: translate(-50%, -50%) scale(1.4); }
 
     .connector.snap-target {
         background-color: #22c55e;
@@ -88,7 +94,42 @@
     .connector.top.snap-target, .connector.bottom.snap-target { transform: translateX(-50%) scale(1.4); }
     .connector.left.snap-target, .connector.right.snap-target { transform: translateY(-50%) scale(1.4); }
 
-    .resize-handle { width: 14px; height: 14px; background: #6b7280; border: 2px solid white; border-radius: 3px; cursor: se-resize; pointer-events: all; }
+    /* --- ESTILOS DE REDIMENSIONAMENTO E ALINHAMENTO (NOVO E ATUALIZADO) --- */
+    .resize-handles-container {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        pointer-events: none;
+        z-index: 1002;
+    }
+
+    .resize-handle {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        background: var(--color-primary-accent);
+        border: 2px solid white;
+        border-radius: 3px;
+        pointer-events: all;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    /* Posicionamento das 8 alças */
+    .resize-handle.tl { top: -7px; left: -7px; cursor: nwse-resize; }
+    .resize-handle.tm { top: -7px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .resize-handle.tr { top: -7px; right: -7px; cursor: nesw-resize; }
+    .resize-handle.ml { top: 50%; left: -7px; transform: translateY(-50%); cursor: ew-resize; }
+    .resize-handle.mr { top: 50%; right: -7px; transform: translateY(-50%); cursor: ew-resize; }
+    .resize-handle.bl { bottom: -7px; left: -7px; cursor: nesw-resize; }
+    .resize-handle.bm { bottom: -7px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .resize-handle.br { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+    /* Estilo para as linhas-guia */
+    .alignment-guide {
+        stroke: #ff4d4d;
+        stroke-width: 1px;
+        stroke-dasharray: 4, 4;
+        vector-effect: non-scaling-stroke;
+    }
 
     /* Toolbar Styles Start */
     #toolbar, #connection-toolbar {
@@ -97,6 +138,7 @@
       background: white; border: 1px solid #ddd; border-radius: 0.5rem;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1); visibility: hidden; z-index: 1010;
       padding: 0.5rem;
+      width: 330px;
     }
     .toolbar-row, .context-menu-row { display: flex; align-items: center; gap: 0.3rem; width: 100%; padding: 0 0.25rem;}
     .toolbar-label, .context-menu-label { font-size: 0.75rem; color: #6b7280; margin-right: 0.25rem; white-space: nowrap; }
@@ -123,7 +165,7 @@
       flex-direction: column;
       align-items: flex-start;
       gap: 0.5rem;
-      width: 260px;
+      width: 280px;
       background: white;
       border: 1px solid #ddd;
       border-radius: 0.5rem;
@@ -194,6 +236,8 @@
       #panZoomContainer { transform-origin: 0 0 !important; }
       svg#lines, #svg-container { width: 100% !important; height: 100% !important; overflow: hidden !important; }
     }
+
+
   </style>
 </head>
 <body>
@@ -201,7 +245,7 @@
     <div class="flex justify-center w-full">
       <div id="top-buttons-container" class="flex items-center flex-wrap p-2.5 bg-gray-100 shadow-md space-x-2">
         <button id="addNode" class="px-4 py-2 bg-blue-500 text-white rounded-md shadow hover:bg-blue-800 transition text-sm font-semibold" title="Novo Item">Novo Item</button>
-        <button id="addImageBtn" 
+        <button id="addImageBtn"
                 class="px-4 py-2 bg-green-500 text-white rounded-md shadow hover:bg-green-700 transition text-sm font-semibold"
                 title="Adicionar Imagem">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -215,6 +259,13 @@
         <button id="redoBtn" title="Refazer (Ctrl+Y)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-red-600 transition text-sm" disabled>↪️</button>
         <button id="deleteBtn" title="Deletar Selecionados (Delete)" class="px-3 py-2 bg-gray-200 text-gray-400 rounded-md shadow hover:bg-red-600 transition text-sm">🗑️</button>
 
+        <button id="eyedropperBtn" class="p-2 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-100 transition" title="Selecionar Cor da Tela">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m13 2-3 3a2 2 0 0 0 0 2.828L12.828 12a2 2 0 0 0 2.828 0L21 6.828a2 2 0 0 0 0-2.828L18 1l-5 5-2-2Z"></path>
+                <path d="m7.344 12.656-5.52 5.52a2.828 2.828 0 0 0 4 4l5.52-5.52"></path>
+            </svg>
+        </button>
+
         <div class="relative inline-block text-left">
             <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Arquivo<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
             <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[160px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
@@ -226,7 +277,20 @@
                 </div>
             </div>
         </div>
-        
+
+        <div class="relative inline-block text-left">
+            <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Editar<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
+            <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[220px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
+                <div class="py-1">
+                    <button id="copyFormattingBtn" class="menu-item-button" title="Copiar estilo do nó (forma, cor, borda)">🎨 Copiar Estilo do Nó</button>
+                    <button id="pasteFormattingBtn" class="menu-item-button" title="Aplicar estilo do nó copiado">📋 Colar Estilo do Nó</button>
+                    <hr class="my-1 border-gray-200">
+                    <button id="copyTextFormattingBtn" class="menu-item-button" title="Copiar formatação do texto (negrito, itálico, cor)">📝 Copiar Formatação do Texto</button>
+                    <button id="pasteTextFormattingBtn" class="menu-item-button" title="Aplicar formatação de texto copiada">✍️ Colar Formatação do Texto</button>
+                </div>
+            </div>
+        </div>
+
         <div class="relative inline-block text-left">
             <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Layout<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
             <div id="layout-menu" class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[220px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
@@ -266,13 +330,13 @@
         </div>
         <div id="container"></div>
         <div id="svg-container">
+          <!-- NOVO: SVG para as linhas-guia de alinhamento -->
+          <svg id="alignment-guides-svg" width="100%" height="100%" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 4; overflow: visible !important;"></svg>
           <svg id="lines" width="100%" height="100%" style="overflow: visible !important;"></svg>
         </div>
       </div>
     </div>
   </div>
-
-  <div id="global-resize-handle" class="resize-handle" style="position: absolute; visibility: hidden; z-index: 1001;"></div>
 
   <div id="toolbar">
     <div id="toolbar-header" class="drag-handle w-full text-center text-gray-400 py-1" title="Arrastar painel">⠿</div>
@@ -293,10 +357,28 @@
         <div class="separator"></div>
         <button data-cmd="insertUnorderedList" title="Lista" style="font-size: 1.25em; line-height: 1; padding: 0.1rem 0.5rem;">•</button>
     </div>
+    <div class="toolbar-row" data-toolbar-section="vertical-align">
+        <button data-verticalalign="flex-start" title="Alinhar ao Topo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-align-top" viewBox="0 0 16 16" style="transform: rotate(-90deg);">
+                <path d="M1.5 13a.5.5 0 0 0 0 1h13a.5.5 0 0 0 0-1h-13zM4 1.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zM8 6a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-1 0v-5A.5.5 0 0 1 8 6z"/>
+            </svg>
+        </button>
+        <button data-verticalalign="center" title="Alinhar ao Meio">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-align-center" viewBox="0 0 16 16" style="transform: rotate(-90deg);">
+                 <path d="M1.5 13a.5.5 0 0 0 0 1h13a.5.5 0 0 0 0-1h-13zm4-12a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zM8 4a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-1 0v-5A.5.5 0 0 1 8 4z"/>
+            </svg>
+        </button>
+        <button data-verticalalign="flex-end" title="Alinhar à Base">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-align-bottom" viewBox="0 0 16 16" style="transform: rotate(-90deg);">
+                <path d="M1.5 3a.5.5 0 0 1 0-1h13a.5.5 0 0 1 0 1h-13zM4 14.5a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 0-1h-7a.5.5 0 0 0-.5.5zM8 6a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 1 0v-5A.5.5 0 0 0 8 6z"/>
+            </svg>
+        </button>
+    </div>
     <div class="toolbar-row" data-toolbar-section="text-style">
-        <select data-cmd="fontSize" title="Tamanho da Fonte"><option value="3">Normal</option><option value="5">Grande</option><option value="2">Pequeno</option><option value="7">Enorme</option></select>
+        <select data-cmd="fontSize" title="Tamanho da Fonte"><option value="3">Normal</option><option value="5">Grande</option><option value="2">Pequeno</option><option value="1">Muito pequeno</option><option value="7">Enorme</option></select>
         <select data-style="lineHeight" title="Espaçamento entre Linhas">
             <option value="normal">Normal</option>
+            <option value="0.8">Compacto</option>
             <option value="1">Simples</option>
             <option value="1.5">1.5</option>
             <option value="2">Duplo</option>
@@ -310,9 +392,9 @@
           <div class="color-swatch" style="background:#068587" data-color="#068587" title="Verde Água"></div>
           <div class="color-swatch" style="background:#6FB07F" data-color="#6FB07F" title="Verde"></div>
           <div class="color-swatch" style="background:#FCB03C" data-color="#FCB03C" title="Laranja"></div>
-          <div class="color-swatch" style="background:#FC5B3F" data-color="#FC5B3F" title="Vermelho Alaranjado"></div>
         </div>
         <input type="color" id="customColor" title="Cor da Fonte Customizada"/>
+        <input type="text" id="customColorHex" class="hex-color-input" title="Código Hex da Cor do Texto" size="7" maxlength="7" style="font-family: monospace; width: 65px; text-align: center; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc;"/>
     </div>
     <div class="toolbar-row" data-toolbar-section="background">
         <span class="toolbar-label">Fundo:</span>
@@ -321,29 +403,28 @@
           <div class="color-swatch" style="background:#EFF6FF" data-color="#EFF6FF" title="Azul Claro"></div>
           <div class="color-swatch" style="background:#FEFCE8" data-color="#FEFCE8" title="Amarelo Claro"></div>
           <div class="color-swatch" style="background:#F0FDF4" data-color="#F0FDF4" title="Verde Claro"></div>
-          <div class="color-swatch" style="background:#FFFBEB" data-color="#FFFBEB" title="Âmbar Claro"></div>
-          <div class="color-swatch" style="background:#FFF1F2" data-color="#FFF1F2" title="Rosa Claro"></div>
         </div>
         <input type="color" data-style="backgroundColor" value="#FFFFFF" title="Cor do Fundo">
-        <div class="separator"></div>
+        <input type="text" data-style-hex="backgroundColor" class="hex-color-input" title="Código Hex da Cor do Fundo" size="7" maxlength="7" style="font-family: monospace; width: 65px; text-align: center; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc;"/>
         <button data-style="transparent" title="Fundo Transparente">👻</button>
     </div>
-    <div class="toolbar-row" data-toolbar-section="border">
+    <div class="toolbar-row" data-toolbar-section="border-color">
         <span class="toolbar-label">Borda:</span>
         <div id="palette-border" class="palette">
           <div class="color-swatch" style="background:#E5E7EB" data-color="#E5E7EB" title="Cinza"></div>
           <div class="color-swatch" style="background:#3B82F6" data-color="#3B82F6" title="Azul"></div>
           <div class="color-swatch" style="background:#F59E0B" data-color="#F59E0B" title="Âmbar"></div>
-          <div class="color-swatch" style="background:#10B981" data-color="#10B981" title="Esmeralda"></div>
-          <div class="color-swatch" style="background:#EF4444" data-color="#EF4444" title="Vermelho"></div>
-          <div class="color-swatch" style="background:#8B5CF6" data-color="#8B5CF6" title="Violeta"></div>
+           <div class="color-swatch" style="background:#10B981" data-color="#10B981" title="Esmeralda"></div>
         </div>
         <input type="color" data-style="borderColor" value="#E5E7EB" title="Cor da Borda">
-        <input type="number" data-style="borderWidth" min="0" max="15" value="1" title="Largura da Borda">
+        <input type="text" data-style-hex="borderColor" class="hex-color-input" title="Código Hex da Cor da Borda" size="7" maxlength="7" style="font-family: monospace; width: 65px; text-align: center; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc;"/>
     </div>
      <div class="toolbar-row" data-toolbar-section="shape">
+        <span class="toolbar-label">Largura:</span>
+        <input type="number" data-style="borderWidth" min="0" max="15" value="1" title="Largura da Borda" style="width: 50px;">
+        <div class="separator"></div>
         <span class="toolbar-label">Forma:</span>
-        <select data-style="shape" title="Forma">
+        <select data-style="shape" title="Forma" style="flex-grow: 1;">
             <option value="rectangle">Retângulo</option>
             <option value="ellipse">Elipse</option>
             <option value="rounded-xl">Arredondado</option>
@@ -381,31 +462,34 @@
     </div>
   </div>
 
-  <div id="multiSelectToolbar" class="p-3 bg-white shadow-lg rounded-lg border border-gray-300" style="position: absolute; visibility: hidden; z-index: 1011; display: flex; flex-direction: column; gap: 0.75rem; width: 280px;">
-      <div id="multi-select-toolbar-header" class="drag-handle w-full text-center text-gray-400 -mt-1 -mx-3 mb-1 py-1 bg-gray-50 rounded-t-lg border-b" title="Arrastar painel">⠿</div>
+  <div id="multiSelectToolbar" class="p-3 bg-white shadow-lg rounded-lg border border-gray-300" style="position: absolute; visibility: hidden; z-index: 1011; display: flex; flex-direction: column; gap: 0.75rem; width: 330px;">
+      <div id="multi-select-toolbar-header" class="drag-handle text-center text-gray-400 -mt-1 -mx-3 mb-1 py-1 bg-gray-50 rounded-t-lg border-b" title="Arrastar painel">⠿</div>
       <div class="-mt-3">
-        <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Estilos</p>
+        <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">ESTILOS</p>
         <div class="space-y-3">
-          <div class="toolbar-row">
+
+          <div class="toolbar-row flex items-center">
               <span class="toolbar-label">Fundo:</span>
               <div id="multi-palette-bg" class="palette">
                 <div class="color-swatch" style="background:#FFFFFF" data-color="#FFFFFF" title="Branco"></div>
                 <div class="color-swatch" style="background:#EFF6FF" data-color="#EFF6FF" title="Azul Claro"></div>
                 <div class="color-swatch" style="background:#FEFCE8" data-color="#FEFCE8" title="Amarelo Claro"></div>
-                <div class="color-swatch" style="background:#FFF1F2" data-color="#FFF1F2" title="Rosa Claro"></div>
               </div>
               <input type="color" data-multi-style="backgroundColor" value="#FFFFFF" title="Cor do Fundo">
+              <input type="text" data-multi-style-hex="backgroundColor" class="hex-color-input" title="Código Hex da Cor do Fundo" size="7" maxlength="7" style="font-family: monospace; width: 65px; text-align: center; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc; flex-grow: 1;">
           </div>
-          <div class="toolbar-row">
+
+          <div class="toolbar-row flex items-center">
               <span class="toolbar-label">Borda:</span>
               <div id="multi-palette-border" class="palette">
                 <div class="color-swatch" style="background:#E5E7EB" data-color="#E5E7EB" title="Cinza"></div>
                 <div class="color-swatch" style="background:#3B82F6" data-color="#3B82F6" title="Azul"></div>
-                <div class="color-swatch" style="background:#10B981" data-color="#10B981" title="Esmeralda"></div>
                 <div class="color-swatch" style="background:#EF4444" data-color="#EF4444" title="Vermelho"></div>
               </div>
               <input type="color" data-multi-style="borderColor" value="#E5E7EB" title="Cor da Borda">
+              <input type="text" data-multi-style-hex="borderColor" class="hex-color-input" title="Código Hex da Cor da Borda" size="7" maxlength="7" style="font-family: monospace; width: 65px; text-align: center; height: 32px; border-radius: 0.25rem; border: 1px solid #ccc; flex-grow: 1;">
           </div>
+
           <div class="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 items-center">
               <label class="toolbar-label justify-self-start">Largura:</label>
               <input type="number" data-multi-style="borderWidth" min="0" max="15" value="1" title="Largura da Borda" class="w-full p-1 h-auto">
@@ -422,9 +506,9 @@
       </div>
 
       <hr/>
-      
+
       <div>
-        <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Organizar</p>
+        <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">ORGANIZAR</p>
         <div class="space-y-2">
             <div class="grid grid-cols-2 gap-2">
                 <button data-action="group" class="menu-item-button !h-auto !py-1.5 !w-full !justify-center !inline-flex !items-center !border !border-gray-200" title="Agrupar Itens (Ctrl+G)">📦 Agrupar</button>
@@ -479,7 +563,7 @@
       <hr />
       <button id="context-ungroup-btn" class="menu-item-button !h-auto !py-1.5 !w-full !justify-center !inline-flex !items-center !gap-2 !border !border-gray-200">🖐️ Desagrupar</button>
   </div>
-    
+
   <div id="connection-toolbar">
     <div id="connection-toolbar-header" class="drag-handle w-full text-center text-gray-400 py-1" title="Arrastar painel">⠿</div>
      <div class="toolbar-row">
@@ -502,6 +586,20 @@
     <div id="modal-box">
       <p id="modal-content">Sample message</p>
       <button id="modal-close-btn">OK</button>
+    </div>
+  </div>
+
+  <div id="colorLoupe" style="position: absolute; width: 80px; height: 80px; border: 1px solid #ccc; border-radius: 50%; overflow: hidden; z-index: 1020; display: none; pointer-events: none;">
+    <canvas id="loupeCanvas" width="200" height="200" style="transform: scale(0.4); transform-origin: top left;"></canvas>
+  </div>
+
+  <div id="color-picker-modal-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.4); display: none; align-items: center; justify-content: center; z-index: 1030;">
+    <div id="color-picker-modal-box" style="background: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; gap: 1rem;">
+      <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #374151;">Cor Selecionada</h3>
+      <div style="display: flex; align-items: center; gap: 0.75rem; border: 1px solid #e5e7eb; padding: 0.5rem 1rem; border-radius: 0.375rem;">
+        <div id="modalColorPreview" style="width: 2rem; height: 2rem; border: 1px solid #ccc; border-radius: 0.25rem;"></div>
+        <div id="modalColorHexCode" style="font-size: 1.1rem; font-family: monospace; color: #1f2937; cursor: pointer; padding: 0.25rem;" title="Clique para copiar">#000000</div>
+      </div>
     </div>
   </div>
 
@@ -544,9 +642,14 @@
     const modalContent = document.getElementById('modal-content');
     const modalCloseBtn = document.getElementById('modal-close-btn');
 
+
     const addImageBtn = document.getElementById('addImageBtn');
     const imageUploadInput = document.getElementById('imageUploadInput');
-    const globalResizeHandle = document.getElementById('global-resize-handle');
+    const copyFormattingBtn = document.getElementById('copyFormattingBtn');
+    const pasteFormattingBtn = document.getElementById('pasteFormattingBtn');
+    // NOVO: Referência para o SVG das guias
+    const alignmentGuidesSvg = document.getElementById('alignment-guides-svg');
+
 
     // --- Lógica para tornar painéis arrastáveis ---
     function makeDraggable(draggableEl, handleEl) {
@@ -557,7 +660,7 @@
 
             if (e.target.closest('button, input, select, .palette')) return;
             e.preventDefault();
-            
+
             offsetX = e.clientX - draggableEl.offsetLeft;
             offsetY = e.clientY - draggableEl.offsetTop;
 
@@ -608,6 +711,7 @@
     const KEY_MOVE_STEP = 10;
     const ZOOM_BUTTON_STEP_FACTOR = 1.2;
     const CONNECTOR_SNAP_RADIUS = 25;
+    const SNAP_THRESHOLD = 5; // Tolerância em pixels para o alinhamento
 
     // --- State Variables ---
     let isA4ModeActive = true;
@@ -625,6 +729,8 @@
     let selectedConnections = new Set();
     let actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] };
     let appClipboard = { type: null, items: [], anchor: { left: 0, top: 0 } };
+    let formattingClipboard = null; // Para copiar/colar formatação de estilo
+    let textFormattingClipboard = null; // Para copiar/colar a formatação do texto
     let currentLineColor = themeColors.connection;
     let currentLineStrokeWidth = 2.5;
     let globalNodeBackgroundColor = '#FFFFFF';
@@ -675,7 +781,7 @@
     // --- Undo/Redo & State Management ---
     function updateUndoRedoButtons() { undoBtn.disabled = undoStack.length === 0; redoBtn.disabled = redoStack.length === 0; }
     function recordAction(action, fromUndo = false, fromRedo = false) { if (!fromUndo && !fromRedo) { undoStack.push(action); redoStack = []; } else if (fromUndo) { redoStack.push(action); } else if (fromRedo) { undoStack.push(action); } updateUndoRedoButtons(); }
-    
+
     function getNodeDataForUndo(nodeEl) {
         const nodeData = {
             id: nodeEl.id,
@@ -698,6 +804,7 @@
             nodeData.text = contentDiv.innerHTML;
             nodeData.contentTextAlign = contentDiv.style.textAlign || 'center';
             nodeData.contentLineHeight = contentDiv.style.lineHeight || 'normal';
+            nodeData.alignItems = nodeEl.style.alignItems || 'center'; // Save vertical alignment
         }
         return nodeData;
     }
@@ -721,10 +828,10 @@
     // --- Node & Element Creation ---
     function createNode(text = 'Novo Item', x = 150, y = 150, id = null, options = {}) {
         const { isUndoRedo = false, recordUndo = true, type = 'text', imageUrl = '' } = options;
-        
+
         if (!isUndoRedo && x === 150 && y === 150) {
             const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2);
-            x = worldCenter.x - (type === 'image' ? 75 : 50); 
+            x = worldCenter.x - (type === 'image' ? 75 : 50);
             y = worldCenter.y - (type === 'image' ? 75 : 20);
             const pageW = a4PageGuideRect.getAttribute('width');
             const pageH = a4PageGuideRect.getAttribute('height');
@@ -747,12 +854,13 @@
             const numId = parseInt(id.split('-')[1]);
             if (!isNaN(numId) && numId >= nodeCounter) nodeCounter = numId + 1;
         }
-        
+
         const node = document.createElement('div');
         node.className = 'node';
         node.id = nodeId;
         node.style.left = `${x}px`;
         node.style.top = `${y}px`;
+        node.style.alignItems = 'center'; // Default vertical alignment
 
         if (type === 'image') {
             node.classList.add('node-image');
@@ -777,23 +885,23 @@
             node.style.borderStyle = parseInt(globalNodeBorderWidth) > 0 ? 'solid' : 'none';
             if (globalNodeShape === 'ellipse') node.classList.add('node-ellipse');
         }
-        
-        ['top', 'bottom', 'left', 'right'].forEach(pos => {
+
+        ['top', 'bottom', 'left', 'right', 'center'].forEach(pos => {
             const connector = document.createElement('div');
             connector.className = 'connector ' + pos;
             connector.dataset.position = pos;
             connector.dataset.nodeId = nodeId;
             node.appendChild(connector);
         });
-        
+
         container.appendChild(node);
         addNodeEventListeners(node);
         updateNodeVisuals(node);
-        
+
         if (recordUndo && isNewNodeFromUser) {
             recordAction({ type: 'createNode', nodeData: getNodeDataForUndo(node) });
         }
-        
+
         return node;
     }
 
@@ -811,14 +919,14 @@
 
     // --- Styling and Formatting ---
     function showToolbar(el) {
-        if (toolbar.style.visibility !== 'visible') {
-            const canvasRect = canvasEl.getBoundingClientRect();
-            toolbar.style.left = `${canvasRect.left + 20}px`;
-            toolbar.style.top = `${canvasRect.top + 80}px`;
-        }
         toolbar.style.visibility = 'visible';
+        manageToolbarPositions();
     }
-    function hideToolbar() { toolbar.style.visibility = 'hidden'; }
+
+    function hideToolbar() {
+        toolbar.style.visibility = 'hidden';
+        manageToolbarPositions();
+    }
 
     function applyFormat(cmd, val = null) {
         if (!editingNode) return;
@@ -843,22 +951,22 @@
 
         contentDiv.focus();
     }
-    
-    function updateNodeVisuals(node) { 
-        if (!node) return; 
+
+    function updateNodeVisuals(node) {
+        if (!node) return;
         const isImageNode = !!node.querySelector('.node-image-content');
-        
+
         // Para cor de fundo, o elemento alvo é diferente
         const bgTargetEl = isImageNode ? node.querySelector('.node-image-content') : node;
-        const bgColor = bgTargetEl.style.backgroundColor; 
+        const bgColor = bgTargetEl.style.backgroundColor;
 
         // Para borda e sombra, o elemento alvo é sempre o nó principal
-        const borderColor = node.style.borderColor; 
-        const borderWidth = parseInt(node.style.borderWidth) || 0; 
-        
-        const isBgTransparent = bgColor === 'transparent' || bgColor === 'rgba(0, 0, 0, 0)'; 
-        const isBorderTransparent = borderWidth === 0 || borderColor === 'transparent' || borderColor === 'rgba(0, 0, 0, 0)'; 
-        
+        const borderColor = node.style.borderColor;
+        const borderWidth = parseInt(node.style.borderWidth) || 0;
+
+        const isBgTransparent = bgColor === 'transparent' || bgColor === 'rgba(0, 0, 0, 0)';
+        const isBorderTransparent = borderWidth === 0 || borderColor === 'transparent' || borderColor === 'rgba(0, 0, 0, 0)';
+
         if (isBgTransparent && isBorderTransparent) {
             node.style.boxShadow = 'none';
         } else if (node.style.boxShadow === 'none') {
@@ -868,7 +976,7 @@
 
     function applyStyleToSingleNode(node, style, value) {
         if (!node || !node.classList.contains('node')) return;
-        
+
         const imageContent = node.querySelector('.node-image-content');
 
         switch (style) {
@@ -877,8 +985,8 @@
                 const targetEl = imageContent || node;
                 targetEl.style.backgroundColor = value;
                 break;
-            case 'borderColor': 
-                node.style.borderColor = value; 
+            case 'borderColor':
+                node.style.borderColor = value;
                 break;
             case 'borderWidth':
                 const width = parseInt(value, 10);
@@ -891,7 +999,7 @@
                 break;
             case 'shape':
                 node.classList.remove('node-ellipse', 'node-rounded-xl', 'node-pill');
-                node.style.borderRadius = ''; 
+                node.style.borderRadius = '';
 
                 if (value === 'ellipse') node.classList.add('node-ellipse');
                 else if (value === 'rounded-xl') node.classList.add('node-rounded-xl');
@@ -900,6 +1008,9 @@
             case 'textAlign':
                 const contentDiv = node.querySelector('.content');
                 if (contentDiv) contentDiv.style.textAlign = value;
+                break;
+            case 'alignItems': // New case for vertical alignment
+                node.style.alignItems = value;
                 break;
             case 'lineHeight':
                 const contentDivLH = node.querySelector('.content');
@@ -934,9 +1045,12 @@
                     if (!contentDiv) return;
                     oldValue = contentDiv.style.textAlign || 'center';
                     break;
-                case 'lineHeight': 
+                case 'alignItems': // New case for vertical alignment
+                    oldValue = node.style.alignItems || 'center';
+                    break;
+                case 'lineHeight':
                     if (!contentDiv) return;
-                    oldValue = contentDiv.style.lineHeight || 'normal'; 
+                    oldValue = contentDiv.style.lineHeight || 'normal';
                     break;
                 default: return;
             }
@@ -956,19 +1070,20 @@
         const targetEl = imageContent || node;
 
         const isTransparent = targetEl.style.backgroundColor === 'transparent' || !targetEl.style.backgroundColor;
-        
+
         const oldBgColor = targetEl.style.backgroundColor;
         const newBgColor = isTransparent ? (targetEl.dataset.oldBg || '#FFFFFF') : 'transparent';
-        
+
         if (!isTransparent) {
             targetEl.dataset.oldBg = oldBgColor;
         }
-        
+
         applyStyleToSingleNode(node, 'backgroundColor', newBgColor);
         recordAction({ type: 'changeNodeStyles', changes: [{ nodeId: node.id, style: 'backgroundColor', oldValue: oldBgColor, newValue: newBgColor }] });
     }
 
     function applyTextAlign(alignValue) { if (!editingNode) return; applyNodeStyle('textAlign', alignValue); }
+    function applyVerticalAlign(alignValue) { if (!editingNode) return; applyNodeStyle('alignItems', alignValue); }
 
     function updateToolbarState(node) {
         if (!node) return;
@@ -978,7 +1093,7 @@
         if (imageContent) {
             // Atualiza os controles de imagem
             const imageStyles = window.getComputedStyle(imageContent);
-            
+
             // Opacidade e Ajuste
             document.getElementById('imageOpacity').value = imageStyles.opacity || 1;
             document.getElementById('imageObjectFit').value = imageStyles.objectFit || 'contain';
@@ -988,12 +1103,15 @@
             document.getElementById('imageBrightness').value = filterString.match(/brightness\(([^)]+)\)/)?.[1] || 1;
             document.getElementById('imageContrast').value = filterString.match(/contrast\(([^)]+)\)/)?.[1] || 1;
             document.getElementById('imageSaturate').value = filterString.match(/saturate\(([^)]+)\)/)?.[1] || 1;
-        } 
-        
+        }
+
         // Lógica comum para nós de texto e imagem (estilos do container .node)
+        const borderColorHex = rgbToHex(styles.borderColor);
         toolbar.querySelector('input[data-style="borderWidth"]').value = parseInt(styles.borderWidth, 10) || 0;
-        toolbar.querySelector('input[data-style="borderColor"]').value = rgbToHex(styles.borderColor);
-        
+        toolbar.querySelector('input[data-style="borderColor"]').value = borderColorHex;
+        toolbar.querySelector('input[data-style-hex="borderColor"]').value = borderColorHex;
+
+
         const shapeSelect = toolbar.querySelector('select[data-style="shape"]');
         if (node.classList.contains('node-ellipse')) shapeSelect.value = 'ellipse';
         else if (node.classList.contains('node-rounded-xl')) shapeSelect.value = 'rounded-xl';
@@ -1003,26 +1121,52 @@
         // Lógica apenas para nós de texto
         const contentDiv = node.querySelector('.content');
         if (contentDiv) {
-            toolbar.querySelector('input[data-style="backgroundColor"]').value = rgbToHex(window.getComputedStyle(node).backgroundColor);
-            
+            const nodeBgColorHex = rgbToHex(window.getComputedStyle(node).backgroundColor);
+            toolbar.querySelector('input[data-style="backgroundColor"]').value = nodeBgColorHex;
+            toolbar.querySelector('input[data-style-hex="backgroundColor"]').value = nodeBgColorHex;
+
+            // Atualiza cor do texto
+            const selection = window.getSelection();
+            let textColor = '#000000';
+            if (selection.rangeCount > 0 && editingNode?.contains(selection.anchorNode)) {
+                 textColor = document.queryCommandValue('foreColor');
+            } else {
+                 const firstTextNode = Array.from(contentDiv.querySelectorAll('*')).find(el => el.style?.color) || contentDiv;
+                 textColor = window.getComputedStyle(firstTextNode).color;
+            }
+            const textColorHex = rgbToHex(textColor);
+            document.getElementById('customColor').value = textColorHex;
+            document.getElementById('customColorHex').value = textColorHex;
+
+
             const contentStyles = window.getComputedStyle(contentDiv);
             const lineHeightSelect = toolbar.querySelector('select[data-style="lineHeight"]');
             const currentLineHeight = contentStyles.lineHeight;
+
             if (currentLineHeight === 'normal') {
                 lineHeightSelect.value = 'normal';
             } else {
                 const pixelValue = parseFloat(currentLineHeight);
                 const fontSize = parseFloat(contentStyles.fontSize);
-                const ratio = (pixelValue / fontSize).toFixed(1);
+                // Previne divisão por zero se o tamanho da fonte for 0
+                const ratio = fontSize > 0 ? (pixelValue / fontSize).toFixed(1) : 0;
                 let bestMatch = 'normal';
-                if (ratio <= 1.1) bestMatch = '1';
-                else if (ratio <= 1.6) bestMatch = '1.5';
-                else bestMatch = '2';
+
+                // Lógica atualizada para encontrar a melhor correspondência, incluindo "Compacto"
+                if (ratio <= 0.9) {
+                    bestMatch = '0.8'; // Compacto
+                } else if (ratio <= 1.2) {
+                    bestMatch = '1';   // Simples
+                } else if (ratio <= 1.6) {
+                    bestMatch = '1.5'; // 1.5
+                } else {
+                    bestMatch = '2';   // Duplo
+                }
                 lineHeightSelect.value = bestMatch;
             }
         }
     }
-    
+
     // --- Funções de Manipulação de Imagem ---
     function applyImageStyles() {
         if (!editingNode) return;
@@ -1031,11 +1175,11 @@
 
         imageEl.style.objectFit = document.getElementById('imageObjectFit').value;
         imageEl.style.opacity = document.getElementById('imageOpacity').value;
-        
+
         const brightness = document.getElementById('imageBrightness').value;
         const contrast = document.getElementById('imageContrast').value;
         const saturate = document.getElementById('imageSaturate').value;
-        
+
         imageEl.style.filter = `brightness(${brightness}) contrast(${contrast}) saturate(${saturate})`;
     }
 
@@ -1064,6 +1208,7 @@
             case 'bottom': return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y + nodeWorldHeight };
             case 'left':   return { x: absPos.x, y: absPos.y + nodeWorldHeight / 2 };
             case 'right':  return { x: absPos.x + nodeWorldWidth, y: absPos.y + nodeWorldHeight / 2 };
+            case 'center': return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y + nodeWorldHeight / 2 };
             default:       return { x: absPos.x + nodeWorldWidth / 2, y: absPos.y + nodeWorldHeight / 2 };
         }
     }
@@ -1145,7 +1290,7 @@
             showModal("Por favor, selecione pelo menos dois itens para agrupar.");
             return;
         }
-        
+
         const oldItemsData = itemsToGroup.map(item => {
             const absPos = getAbsolutePosition(item);
             return { id: item.id, left: absPos.x + 'px', top: absPos.y + 'px' };
@@ -1183,7 +1328,7 @@
             if (item.classList.contains('node')) item.classList.add('in-group');
             groupContainer.appendChild(item);
         });
-        
+
         recordAction({
             type: 'group',
             groupId: groupId,
@@ -1210,7 +1355,7 @@
         groupsToUngroup.forEach(groupContainer => {
             const groupAbsPos = getAbsolutePosition(groupContainer);
             const childItems = Array.from(groupContainer.children).filter(c => c.classList.contains('node') || c.classList.contains('group-container'));
-            
+
             ungroupedData.push({
                 groupData: { id: groupContainer.id, left: groupContainer.style.left, top: groupContainer.style.top, width: groupContainer.style.width, height: groupContainer.style.height },
                 childrenData: childItems.map(child => ({ id: child.id, left: child.style.left, top: child.style.top }))
@@ -1235,11 +1380,74 @@
         updateSelectionVisuals();
         drawLines();
     }
-    
+
     // --- Lógica do Painel Flutuante ---
+    function manageToolbarPositions() {
+        const canvasRect = canvasEl.getBoundingClientRect();
+        const allItems = document.querySelectorAll('.node, .group-container');
+        const spacing = 10;
+        const toolbarWidth = 280;
+
+        const visibleToolbars = [toolbar, multiSelectToolbar, connectionToolbar, groupContextMenu]
+            .filter(tb => {
+                const style = window.getComputedStyle(tb);
+                return style.visibility !== 'hidden' && style.display !== 'none';
+            });
+
+        if (visibleToolbars.length === 0) return;
+
+        const totalHeight = visibleToolbars.reduce((sum, tb) => sum + tb.offsetHeight, 0) + Math.max(0, visibleToolbars.length - 1) * spacing;
+
+        const potentialPositions = [
+            { left: canvasRect.left + 20, top: canvasRect.top + 80 },
+            { left: canvasRect.right - toolbarWidth - 20, top: canvasRect.top + 80 }
+        ];
+
+        let chosenPosition = null;
+
+        for (const pos of potentialPositions) {
+            let hasOverlap = false;
+            const stackRect = {
+                left: pos.left,
+                top: pos.top,
+                right: pos.left + toolbarWidth,
+                bottom: pos.top + totalHeight
+            };
+
+            for (const item of allItems) {
+                const itemRect = item.getBoundingClientRect();
+                if (itemRect.width === 0 && itemRect.height === 0) continue;
+
+                if (!(stackRect.right < itemRect.left || stackRect.left > itemRect.right || stackRect.bottom < itemRect.top || stackRect.top > itemRect.bottom)) {
+                    hasOverlap = true;
+                    break;
+                }
+            }
+
+            if (!hasOverlap) {
+                chosenPosition = pos;
+                break;
+            }
+        }
+
+        if (!chosenPosition) {
+            chosenPosition = potentialPositions[0];
+        }
+
+        let currentTop = chosenPosition.top;
+        visibleToolbars.forEach(tb => {
+            tb.style.left = `${chosenPosition.left}px`;
+            tb.style.top = `${currentTop}px`;
+            currentTop += tb.offsetHeight + spacing;
+        });
+    }
+
     function showMultiSelectToolbar() {
-        if (selectedItems.size <= 1) return;
-        
+        if (selectedItems.size <= 1) {
+            hideMultiSelectToolbar();
+            return;
+        }
+
         let hasVisibleItems = false;
         selectedItems.forEach(id => {
             const item = document.getElementById(id);
@@ -1253,18 +1461,15 @@
             return;
         }
 
-        if (multiSelectToolbar.style.visibility !== 'visible') {
-            const canvasRect = canvasEl.getBoundingClientRect();
-            multiSelectToolbar.style.left = `${canvasRect.left + 20}px`;
-            multiSelectToolbar.style.top = `${canvasRect.top + 80}px`;
-        }
         multiSelectToolbar.style.visibility = 'visible';
+        manageToolbarPositions();
     }
 
     function hideMultiSelectToolbar() {
         multiSelectToolbar.style.visibility = 'hidden';
+        manageToolbarPositions();
     }
-    
+
     // --- Lógica do Painel de Conexão ---
     function showConnectionToolbar() {
         if (selectedConnections.size === 0) {
@@ -1277,17 +1482,14 @@
             connectionToolbar.querySelector('[data-conn-style="color"]').value = firstConn.color || currentLineColor;
             connectionToolbar.querySelector('[data-conn-style="width"]').value = firstConn.width || currentLineStrokeWidth;
         }
-        
-        if (connectionToolbar.style.visibility !== 'visible') {
-            const canvasRect = canvasEl.getBoundingClientRect();
-            connectionToolbar.style.left = `${canvasRect.left + 20}px`;
-            connectionToolbar.style.top = `${canvasRect.top + 80}px`;
-        }
+
         connectionToolbar.style.visibility = 'visible';
+        manageToolbarPositions();
     }
 
     function hideConnectionToolbar() {
         connectionToolbar.style.visibility = 'hidden';
+        manageToolbarPositions();
     }
 
     function applyBulkStyles() {
@@ -1339,7 +1541,7 @@
         }
         drawLines();
     }
-    
+
     function applyConnectionStyles() {
         if (selectedConnections.size === 0) return;
         const newColor = connectionToolbar.querySelector('[data-conn-style="color"]').value;
@@ -1371,7 +1573,7 @@
     function updateMultiSelectToolbarState() {
         const selectionSize = selectedItems.size;
         const hasGroup = [...selectedItems].some(id => document.getElementById(id)?.classList.contains('group-container'));
-        
+
         const canAlign = selectionSize >= 2;
         const canGroup = selectionSize >= 2;
         const canUngroup = hasGroup;
@@ -1382,13 +1584,118 @@
     }
 
     // --- Selection & Alignment ---
+    // NOVO: Função para desenhar as guias de alinhamento
+    function updateAndDrawAlignmentGuides(movingRect, movingItemIds, direction, delta) {
+    alignmentGuidesSvg.innerHTML = '';
+    if (!movingRect) return { x: 0, y: 0 };
+
+    // Define os pontos do retângulo em movimento que vamos testar para alinhamento
+    const movingRectPoints = {
+        left: movingRect.left,
+        midX: movingRect.left + movingRect.width / 2,
+        right: movingRect.left + movingRect.width,
+        top: movingRect.top,
+        midY: movingRect.top + movingRect.height / 2,
+        bottom: movingRect.top + movingRect.height,
+    };
+
+    let activePointsX = [], activePointsY = [];
+
+    // Se estiver arrastando, todos os pontos são ativos
+    if (direction === 'move') {
+        activePointsX = [{ pos: movingRectPoints.left, type: 'left' }, { pos: movingRectPoints.midX, type: 'midX' }, { pos: movingRectPoints.right, type: 'right' }];
+        activePointsY = [{ pos: movingRectPoints.top, type: 'top' }, { pos: movingRectPoints.midY, type: 'midY' }, { pos: movingRectPoints.bottom, type: 'bottom' }];
+    } else { // Se estiver redimensionando, apenas os pontos relevantes para a direção são ativos
+        if (direction.includes('l')) activePointsX.push({ pos: movingRectPoints.left, type: 'left' });
+        if (direction.includes('r')) activePointsX.push({ pos: movingRectPoints.right, type: 'right' });
+        if (direction.includes('t')) activePointsY.push({ pos: movingRectPoints.top, type: 'top' });
+        if (direction.includes('b')) activePointsY.push({ pos: movingRectPoints.bottom, type: 'bottom' });
+        // Adiciona centros se não houver um lado específico (ex: 'tm', 'ml')
+        if (direction.includes('m') && !direction.includes('l') && !direction.includes('r')) activePointsX.push({ pos: movingRectPoints.midX, type: 'midX' });
+        if (direction.includes('m') && !direction.includes('t') && !direction.includes('b')) activePointsY.push({ pos: movingRectPoints.midY, type: 'midY' });
+    }
+
+    const allNodes = Array.from(document.querySelectorAll('.node:not(.in-group), .group-container'));
+    let candidateSnapsX = [], candidateSnapsY = [];
+
+    allNodes.forEach(otherNode => {
+        if (movingItemIds.has(otherNode.id)) return;
+
+        // Pontos de "snap" do outro nó (os alvos)
+        const oWorldRect = { left: otherNode.offsetLeft, top: otherNode.offsetTop, width: otherNode.offsetWidth, height: otherNode.offsetHeight };
+        const oPointsX = [oWorldRect.left, oWorldRect.left + oWorldRect.width / 2, oWorldRect.left + oWorldRect.width];
+        const oPointsY = [oWorldRect.top, oWorldRect.top + oWorldRect.height / 2, oWorldRect.top + oWorldRect.height];
+
+        // Compara pontos ativos (do nó em movimento) com pontos alvo (dos outros nós)
+        activePointsX.forEach(activePt => {
+            oPointsX.forEach(targetPt => {
+                const distance = Math.abs(activePt.pos - targetPt);
+                if (distance < (SNAP_THRESHOLD / viewport.scale)) {
+                    if ((delta.x < 0 && targetPt <= activePt.pos) || (delta.x > 0 && targetPt >= activePt.pos) || delta.x === 0) {
+                        candidateSnapsX.push({ distance, adjustment: targetPt - activePt.pos, guidePos: targetPt });
+                    }
+                }
+            });
+        });
+        activePointsY.forEach(activePt => {
+            oPointsY.forEach(targetPt => {
+                const distance = Math.abs(activePt.pos - targetPt);
+                if (distance < (SNAP_THRESHOLD / viewport.scale)) {
+                     if ((delta.y < 0 && targetPt <= activePt.pos) || (delta.y > 0 && targetPt >= activePt.pos) || delta.y === 0) {
+                        candidateSnapsY.push({ distance, adjustment: targetPt - activePt.pos, guidePos: targetPt });
+                    }
+                }
+            });
+        });
+    });
+
+    let finalAdjustment = { x: 0, y: 0 };
+    const canvasRect = canvasEl.getBoundingClientRect();
+    const worldView = {
+        top: screenToWorld(canvasRect.left, canvasRect.top).y, bottom: screenToWorld(canvasRect.left, canvasRect.bottom).y,
+        left: screenToWorld(canvasRect.left, canvasRect.top).x, right: screenToWorld(canvasRect.right, canvasRect.top).x
+    };
+
+    if (candidateSnapsX.length > 0) {
+        candidateSnapsX.sort((a, b) => a.distance - b.distance);
+        const bestSnapX = candidateSnapsX[0];
+        finalAdjustment.x = bestSnapX.adjustment;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('class', 'alignment-guide');
+        line.setAttribute('x1', bestSnapX.guidePos); line.setAttribute('x2', bestSnapX.guidePos);
+        line.setAttribute('y1', worldView.top); line.setAttribute('y2', worldView.bottom);
+        alignmentGuidesSvg.appendChild(line);
+    }
+
+    if (candidateSnapsY.length > 0) {
+        candidateSnapsY.sort((a, b) => a.distance - b.distance);
+        const bestSnapY = candidateSnapsY[0];
+        finalAdjustment.y = bestSnapY.adjustment;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('class', 'alignment-guide');
+        line.setAttribute('y1', bestSnapY.guidePos); line.setAttribute('y2', bestSnapY.guidePos);
+        line.setAttribute('x1', worldView.left); line.setAttribute('x2', worldView.right);
+        alignmentGuidesSvg.appendChild(line);
+    }
+
+    return finalAdjustment;
+}
+
+    // ATUALIZADO: Função para gerenciar o estado visual da seleção
     function updateSelectionVisuals() {
+        // Remove todas as classes de seleção e alças de redimensionamento existentes
         document.querySelectorAll('.node.selected, .group-container.selected').forEach(el => el.classList.remove('selected'));
+        document.querySelectorAll('.resize-handles-container').forEach(container => container.remove());
+
+        // Adiciona a classe 'selected' aos itens atualmente selecionados
         selectedItems.forEach(id => {
             const item = document.getElementById(id);
             if (item) item.classList.add('selected');
         });
 
+        // Gerencia a visibilidade das barras de ferramentas
         if (selectedItems.size > 1) {
             showMultiSelectToolbar();
             updateMultiSelectToolbarState();
@@ -1402,22 +1709,35 @@
             hideConnectionToolbar();
         }
 
+        // --- LÓGICA PRINCIPAL: ADICIONA AS ALÇAS DE REDIMENSIONAMENTO ---
+        // Se houver exatamente um item selecionado, e for um nó...
         if (selectedItems.size === 1) {
-            const nodeId = selectedItems.values().next().value;
-            const node = document.getElementById(nodeId);
-            if (node && node.classList.contains('node') && !node.classList.contains('in-group')) {
-                const nodeRect = node.getBoundingClientRect();
-                globalResizeHandle.style.left = `${nodeRect.right - 8}px`;
-                globalResizeHandle.style.top = `${nodeRect.bottom - 8}px`;
-                globalResizeHandle.style.visibility = 'visible';
-                globalResizeHandle.dataset.nodeId = nodeId;
-            } else {
-                globalResizeHandle.style.visibility = 'hidden';
+            const selectedId = selectedItems.values().next().value;
+            const node = document.getElementById(selectedId);
+
+            // Verifica se o item selecionado é um nó (e não um grupo)
+            if (node && node.classList.contains('node')) {
+                // Cria o container para as 8 alças
+                const handlesContainer = document.createElement('div');
+                handlesContainer.className = 'resize-handles-container';
+
+                // Define as 8 posições/direções das alças
+                const handleDirections = ['tl', 'tm', 'tr', 'ml', 'mr', 'bl', 'bm', 'br'];
+
+                // Cria cada alça e a adiciona ao container
+                handleDirections.forEach(dir => {
+                    const handle = document.createElement('div');
+                    handle.className = `resize-handle ${dir}`;
+                    handle.dataset.direction = dir; // Armazena a direção para a lógica de redimensionamento
+                    handlesContainer.appendChild(handle);
+                });
+
+                // Anexa o container de alças diretamente ao nó selecionado
+                node.appendChild(handlesContainer);
             }
-        } else {
-            globalResizeHandle.style.visibility = 'hidden';
         }
     }
+
     function selectItem(item, isCtrlPressed) {
         const itemId = item.id;
         if (!isCtrlPressed && selectedItems.has(itemId) && selectedItems.size === 1) return;
@@ -1425,7 +1745,43 @@
         if (selectedItems.has(itemId)) selectedItems.delete(itemId); else selectedItems.add(itemId);
         updateSelectionVisuals();
     }
-    function selectNodesInRect(rect, isCtrlPressed) { if (!isCtrlPressed) selectedItems.clear(); document.querySelectorAll('.node:not(.in-group), .group-container').forEach(item => { const itemRect = item.getBoundingClientRect(); if (!(rect.right < itemRect.left || rect.left > itemRect.right || rect.bottom < itemRect.top || rect.top > itemRect.bottom)) selectedItems.add(item.id); }); updateSelectionVisuals(); }
+    function selectNodesInRect(rect, isCtrlPressed) {
+        if (!isCtrlPressed) {
+            selectedItems.clear();
+            selectedConnections.clear();
+        }
+
+        // Select nodes and groups
+        document.querySelectorAll('.node:not(.in-group), .group-container').forEach(item => {
+            const itemRect = item.getBoundingClientRect();
+            if (!(rect.right < itemRect.left || rect.left > itemRect.right || rect.bottom < itemRect.top || rect.top > itemRect.bottom)) {
+                 selectedItems.add(item.id);
+            }
+        });
+
+        // Select connections
+        document.querySelectorAll('g.connection-group').forEach(group => {
+            const connIndex = parseInt(group.dataset.connIndex, 10);
+            const lineRect = group.getBoundingClientRect();
+
+            // Check for intersection
+            const intersects = !(
+                rect.right < lineRect.left ||
+                rect.left > lineRect.right ||
+                rect.bottom < lineRect.top ||
+                rect.top > lineRect.bottom
+            );
+
+            if (intersects) {
+                if (isFinite(connIndex)) {
+                     selectedConnections.add(connIndex);
+                }
+            }
+        });
+
+        updateSelectionVisuals();
+        drawLines(); // Redraw lines to show selection highlights
+    }
     function clearSelection() { const hadNodeSelection = selectedItems.size > 0; const hadConnSelection = selectedConnections.size > 0; selectedItems.clear(); selectedConnections.clear(); if (hadNodeSelection) updateSelectionVisuals(); if (hadConnSelection) { drawLines(); updateSelectionVisuals(); } hideMultiSelectToolbar(); hideConnectionToolbar(); }
     function handleDelete() {
         if (selectedConnections.size > 0) {
@@ -1489,9 +1845,661 @@
     function distributeSelected(type) { const nodes = Array.from(selectedItems).map(id => document.getElementById(id)).filter(Boolean); if (nodes.length < 2) return; const initialPositions = nodes.map(node => ({ nodeId: node.id, oldLeft: `${node.offsetLeft}px`, oldTop: `${node.offsetTop}px` })); if (type === 'horizontal') { nodes.sort((a, b) => a.offsetLeft - b.offsetLeft); const minLeft = nodes[0].offsetLeft; const maxRight = nodes[nodes.length - 1].offsetLeft + nodes[nodes.length - 1].offsetWidth; const totalSpan = maxRight - minLeft; let totalNodesWidth = nodes.reduce((sum, n) => sum + n.offsetWidth, 0); const gap = (totalSpan - totalNodesWidth) / (nodes.length - 1); let currentX = parseFloat(minLeft); for (let i = 0; i < nodes.length; i++) { nodes[i].style.left = `${Math.round(currentX)}px`; currentX += nodes[i].offsetWidth + gap; } } else if (type === 'vertical') { nodes.sort((a, b) => a.offsetTop - b.offsetTop); const minTop = nodes[0].offsetTop; const maxBottom = nodes[nodes.length - 1].offsetTop + nodes[nodes.length - 1].offsetHeight; const totalSpan = maxBottom - minTop; let totalNodesHeight = nodes.reduce((sum, n) => sum + n.offsetHeight, 0); const gap = (totalSpan - totalNodesHeight) / (nodes.length - 1); let currentY = parseFloat(minTop); for (let i = 0; i < nodes.length; i++) { nodes[i].style.top = `${Math.round(currentY)}px`; currentY += nodes[i].offsetHeight + gap; } } const finalChanges = initialPositions.map(pos => ({ ...pos, newLeft: document.getElementById(pos.nodeId).style.left, newTop: document.getElementById(pos.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges }); drawLines(); }
 
     // --- Clipboard & Save/Load ---
-    function handleCopy() { if (selectedItems.size === 0) return; appClipboard.items = []; appClipboard.type = 'copy'; let minLeft = Infinity, minTop = Infinity; const nodesToProcess = Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node')); if (nodesToProcess.length === 0) return; nodesToProcess.forEach(n => { minLeft = Math.min(minLeft, n.offsetLeft); minTop = Math.min(minTop, n.offsetTop); }); appClipboard.anchor = { left: minLeft, top: minTop }; appClipboard.items = nodesToProcess.map(node => ({ contentHTML: node.querySelector('.content').innerHTML, className: Array.from(node.classList).filter(c => !['selected', 'dragging'].includes(c)).join(' '), inlineStyle: node.style.cssText, width: node.offsetWidth, height: node.offsetHeight, relativeLeft: node.offsetLeft - minLeft, relativeTop: node.offsetTop - minTop, })); }
+    function handleCopy() {
+        const nodesToProcess = Array.from(selectedItems)
+            .map(id => document.getElementById(id))
+            .filter(el => el?.classList.contains('node'));
+
+        if (nodesToProcess.length === 0) {
+            // Limpa o clipboard se nada for selecionado
+            appClipboard = { type: null, items: [], connections: [], anchor: { left: 0, top: 0 } };
+            return;
+        }
+
+        const selectedNodeIds = new Set(nodesToProcess.map(n => n.id));
+        let minLeft = Math.min(...nodesToProcess.map(n => n.offsetLeft));
+        let minTop = Math.min(...nodesToProcess.map(n => n.offsetTop));
+
+        // Copia os dados dos nós, incluindo seus IDs originais
+        const copiedItems = nodesToProcess.map(node => {
+            const imageEl = node.querySelector('img.node-image-content');
+            const baseData = {
+                originalId: node.id, // Adicionado: guarda o ID original para recriar as conexões
+                width: node.offsetWidth,
+                height: node.offsetHeight,
+                relativeLeft: node.offsetLeft - minLeft,
+                relativeTop: node.offsetTop - minTop,
+                className: node.className,
+                inlineStyle: node.style.cssText
+            };
+            if (imageEl) {
+                return { ...baseData, type: 'image', imageUrl: imageEl.src, imageStyle: imageEl.style.cssText };
+            }
+            const contentDiv = node.querySelector('.content');
+            return { ...baseData, type: 'text', contentHTML: contentDiv.innerHTML, contentTextAlign: contentDiv.style.textAlign, contentLineHeight: contentDiv.style.lineHeight, alignItems: node.style.alignItems };
+        });
+
+        // Adicionado: Filtra e copia as conexões que estão inteiramente dentro da seleção
+        const copiedConnections = connections.filter(conn =>
+            selectedNodeIds.has(conn.from) && selectedNodeIds.has(conn.to)
+        );
+
+        // Atualiza a estrutura do clipboard global
+        appClipboard = {
+            type: 'copy',
+            items: copiedItems,
+            connections: copiedConnections,
+            anchor: { left: minLeft, top: minTop }
+        };
+    }
+
+    function handlePaste() {
+        if (!appClipboard.items || appClipboard.items.length === 0) return;
+
+        const canvasRect = canvasEl.getBoundingClientRect();
+        const isMouseOutside = globalScreenMouse.x < canvasRect.left || globalScreenMouse.x > canvasRect.right || globalScreenMouse.y < canvasRect.top || globalScreenMouse.y > canvasRect.bottom || (globalScreenMouse.x === 0 && globalScreenMouse.y === 0);
+        const worldMousePaste = screenToWorld(globalScreenMouse.x, globalScreenMouse.y);
+        const basePastePos = isMouseOutside ? { x: appClipboard.anchor.left + 20, y: appClipboard.anchor.top + 20 } : { x: worldMousePaste.x, y: worldMousePaste.y };
+
+        clearSelection();
+
+        const idMap = new Map();
+        const pastedNodesData = [];
+
+        // 1. Criar os novos nós e mapear os IDs antigos para os novos
+        appClipboard.items.forEach(itemData => {
+            const newPos = { x: basePastePos.x + itemData.relativeLeft, y: basePastePos.y + itemData.relativeTop };
+            const newNode = createNode(itemData.type === 'text' ? itemData.contentHTML : null, newPos.x, newPos.y, null, { recordUndo: false, type: itemData.type, imageUrl: itemData.imageUrl });
+
+            Object.assign(newNode.style, { cssText: itemData.inlineStyle, width: `${itemData.width}px`, height: `${itemData.height}px`, left: `${newPos.x}px`, top: `${newPos.y}px` });
+            newNode.className = itemData.className;
+            if (itemData.type === 'image' && itemData.imageStyle) newNode.querySelector('img.node-image-content').style.cssText = itemData.imageStyle;
+            if (itemData.type === 'text') Object.assign(newNode.querySelector('.content').style, { textAlign: itemData.contentTextAlign || '', lineHeight: itemData.contentLineHeight || '' });
+
+            newNode.classList.remove('selected', 'editing', 'style-target');
+            updateNodeVisuals(newNode);
+
+            selectedItems.add(newNode.id);
+            idMap.set(itemData.originalId, newNode.id); // Mapeia o ID antigo (da cópia) para o novo ID
+            pastedNodesData.push(getNodeDataForUndo(newNode));
+        });
+
+        // 2. Criar as novas conexões usando o mapa de IDs
+        const pastedConnectionsData = [];
+        if (appClipboard.connections) {
+            appClipboard.connections.forEach(connData => {
+                const newFromId = idMap.get(connData.from);
+                const newToId = idMap.get(connData.to);
+
+                if (newFromId && newToId) {
+                    const newConnection = { ...connData, from: newFromId, to: newToId };
+                    connections.push(newConnection);
+                    pastedConnectionsData.push(newConnection);
+                }
+            });
+        }
+
+        // 3. Gravar uma única ação de "colar" para o histórico de undo/redo
+        if (pastedNodesData.length > 0) {
+            recordAction({ type: 'pasteNodes', nodesData: pastedNodesData, connectionsData: pastedConnectionsData });
+        }
+
+        updateSelectionVisuals();
+        drawLines();
+        if (appClipboard.type === 'cut') {
+            appClipboard = { type: null, items: [], connections: [], anchor: { left: 0, top: 0 } };
+        }
+    }
+
+    function handleUndo() {
+        if (isLayoutRunning || undoStack.length === 0) return;
+        const action = undoStack.pop();
+        let needsRedraw = false;
+        switch (action.type) {
+            case 'createNode': document.getElementById(action.nodeId || action.nodeData.id)?.remove(); connections = connections.filter(c => c.from !== (action.nodeId || action.nodeData.id) && c.to !== (action.nodeId || action.nodeData.id)); needsRedraw = true; break;
+            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); if (contentDiv) { contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; } node.style.alignItems = nodeData.alignItems || 'center'; const img = node.querySelector('img.node-image-content'); if (img && nodeData.imageStyle) { img.style.cssText = nodeData.imageStyle; } updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break;
+            case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break;
+            case 'resizeNode':
+                const nResizeUndo = document.getElementById(action.nodeId);
+                if (nResizeUndo) { Object.assign(nResizeUndo.style, action.oldState); }
+                needsRedraw = true;
+                break;
+            case 'createConnection': connections.pop(); needsRedraw = true; break;
+            case 'deleteConnections': connections.push(...action.deletedConns); needsRedraw = true; break;
+            case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.oldContent; break;
+            case 'pasteNodes':
+                // Remove as conexões que foram coladas
+                if (action.connectionsData) {
+                    const pastedConnSet = new Set(action.connectionsData.map(c => JSON.stringify(c)));
+                    connections = connections.filter(c => !pastedConnSet.has(JSON.stringify(c)));
+                }
+                // Remove os nós que foram colados
+                action.nodesData.forEach(nData => {
+                    document.getElementById(nData.id)?.remove();
+                });
+                needsRedraw = true;
+                break;
+            case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.oldValue); } }); needsRedraw = true; break;
+            case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', change.oldStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', change.oldStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', parseInt(change.oldStyles.borderWidth) || 0); applyStyleToSingleNode(node, 'shape', change.oldStyles.shape); } }); needsRedraw = true; break;
+            case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = change.oldStyles.color; conn.width = change.oldStyles.width; } }); needsRedraw = true; break;
+            case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.oldValue; } }); break;
+
+            case 'group':
+                const groupToUndo = document.getElementById(action.groupId);
+                if (groupToUndo) {
+                    const itemsToRestore = [];
+                    action.groupedItemsData.forEach(data => {
+                        const item = document.getElementById(data.id);
+                        if(item) itemsToRestore.push(item);
+                    });
+
+                    itemsToRestore.forEach(item => {
+                        const oldData = action.groupedItemsData.find(d => d.id === item.id);
+                        container.appendChild(item);
+                        item.style.left = oldData.left;
+                        item.style.top = oldData.top;
+                        if (item.classList.contains('node')) {
+                            item.classList.remove('in-group');
+                        }
+                    });
+                    groupToUndo.remove();
+                }
+                selectedItems.clear();
+                action.groupedItemsData.forEach(data => selectedItems.add(data.id));
+                needsRedraw = true;
+                break;
+
+            case 'ungroup':
+                action.ungroupedData.forEach(data => {
+                    const group = document.createElement('div');
+                    group.id = data.groupData.id;
+                    group.className = 'group-container';
+                    Object.assign(group.style, data.groupData);
+                    container.appendChild(group);
+
+                    data.childrenData.forEach(childData => {
+                        const child = document.getElementById(childData.id);
+                        if (child) {
+                            group.appendChild(child);
+                            child.style.left = childData.left;
+                            child.style.top = childData.top;
+                            if (child.classList.contains('node')) {
+                                child.classList.add('in-group');
+                            }
+                        }
+                    });
+                });
+                selectedItems.clear();
+                action.ungroupedData.forEach(data => selectedItems.add(data.groupData.id));
+                needsRedraw = true;
+                break;
+
+            case 'changeImageNodeStyles':
+                const nodeToUndo = document.getElementById(action.nodeId);
+                if (nodeToUndo) {
+                    nodeToUndo.style.cssText = action.oldNodeStyles;
+                    const img = nodeToUndo.querySelector('img.node-image-content');
+                    if (img) img.style.cssText = action.oldImageStyles;
+                }
+                break;
+            case 'pasteFormatting':
+                action.changes.forEach(change => {
+                    const node = document.getElementById(change.nodeId);
+                    if (node) {
+                        const oldPosLeft = node.style.left;
+                        const oldPosTop = node.style.top;
+                        node.style.cssText = change.oldInlineStyle;
+                        node.className = change.oldClassName;
+                        node.style.left = oldPosLeft;
+                        node.style.top = oldPosTop;
+                        const image = node.querySelector('img.node-image-content');
+                        if (image && change.oldImageStyle) {
+                            image.style.cssText = change.oldImageStyle;
+                        }
+                        updateNodeVisuals(node);
+                    }
+                });
+                needsRedraw = true;
+                break;
+        }
+        recordAction(action, true, false);
+        if (needsRedraw) drawLines();
+        updateSelectionVisuals();
+    }
+
+    function handleRedo() {
+        if (isLayoutRunning || redoStack.length === 0) return;
+        const action = redoStack.pop();
+        let needsRedraw = false;
+        switch (action.type) {
+            case 'createNode': case 'pasteNodes':
+                const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData;
+                nodesToCreate.forEach(nodeData => {
+                    const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true });
+                    node.className = 'node ' + nodeData.className;
+                    node.style.cssText = nodeData.inlineStyle;
+                    node.style.left = nodeData.left;
+                    node.style.top = nodeData.top;
+                    node.style.width = nodeData.width;
+                    node.style.height = nodeData.height;
+                    const contentDiv = node.querySelector('.content');
+                    if (contentDiv) {
+                        contentDiv.style.textAlign = nodeData.contentTextAlign;
+                        contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
+                    }
+                    node.style.alignItems = nodeData.alignItems || 'center';
+                    const img = node.querySelector('img.node-image-content');
+                    if (img && nodeData.imageStyle) {
+                        img.style.cssText = nodeData.imageStyle;
+                    }
+                    updateNodeVisuals(node);
+                });
+                // Recria as conexões se for uma ação de colar
+                if (action.type === 'pasteNodes' && action.connectionsData) {
+                    connections.push(...action.connectionsData);
+                }
+                needsRedraw = true;
+                break;
+            case 'deleteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); }); const nodesToFilter = new Set(action.nodesData.map(nd => nd.id)); connections = connections.filter(c => !nodesToFilter.has(c.from) && !nodesToFilter.has(c.to)); selectedItems.clear(); needsRedraw = true; break;
+            case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.newLeft; n.style.top = c.newTop; } }); needsRedraw = true; break;
+            case 'resizeNode':
+                const nResizeRedo = document.getElementById(action.nodeId);
+                if (nResizeRedo) { Object.assign(nResizeRedo.style, action.newState); }
+                needsRedraw = true;
+                break;
+            case 'createConnection': if (action.connectionData) connections.push(action.connectionData); needsRedraw = true; break;
+            case 'deleteConnections': const connsToRedoDelete = new Set(action.deletedConns.map(c => JSON.stringify(c))); connections = connections.filter(c => !connsToRedoDelete.has(JSON.stringify(c))); selectedConnections.clear(); needsRedraw = true; break;
+            case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.newContent; break;
+            case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.newValue); } }); needsRedraw = true; break;
+            case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', action.newStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', action.newStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', action.newStyles.borderWidth); applyStyleToSingleNode(node, 'shape', action.newStyles.shape); } }); needsRedraw = true; break;
+            case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = action.newStyles.color; conn.width = action.newStyles.width; } }); needsRedraw = true; break;
+            case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.newValue; } }); break;
+
+            case 'group':
+                const groupContainer = document.createElement('div');
+                groupContainer.id = action.groupId;
+                groupContainer.className = 'group-container';
+                Object.assign(groupContainer.style, action.groupRect);
+                container.appendChild(groupContainer);
+                const groupLeft = parseFloat(action.groupRect.left);
+                const groupTop = parseFloat(action.groupRect.top);
+
+                action.groupedItemsData.forEach(data => {
+                    const item = document.getElementById(data.id);
+                    if (item) {
+                        groupContainer.appendChild(item);
+                        item.style.left = `${parseFloat(data.left) - groupLeft}px`;
+                        item.style.top = `${parseFloat(data.top) - groupTop}px`;
+                        if(item.classList.contains('node')) item.classList.add('in-group');
+                    }
+                });
+                selectedItems.clear();
+                selectedItems.add(action.groupId);
+                needsRedraw = true;
+                break;
+
+            case 'ungroup':
+                const allUngroupedIds = new Set();
+                action.ungroupedData.forEach(data => {
+                    const groupToRedoUngroup = document.getElementById(data.groupData.id);
+                    if (groupToRedoUngroup) {
+                        const groupAbsPos = getAbsolutePosition(groupToRedoUngroup);
+                        const childrenToMove = Array.from(groupToRedoUngroup.children);
+
+                        childrenToMove.forEach(child => {
+                             const oldChildData = data.childrenData.find(c => c.id === child.id);
+                             if (oldChildData) {
+                                const newLeft = groupAbsPos.x + parseFloat(oldChildData.left);
+                                const newTop = groupAbsPos.y + parseFloat(oldChildData.top);
+                                container.appendChild(child);
+                                child.style.left = `${newLeft}px`;
+                                child.style.top = `${newTop}px`;
+                                if(child.classList.contains('node')) child.classList.remove('in-group');
+                                allUngroupedIds.add(child.id);
+                             }
+                        });
+                        groupToRedoUngroup.remove();
+                    }
+                });
+                selectedItems.clear();
+                allUngroupedIds.forEach(id => selectedItems.add(id));
+                needsRedraw = true;
+                break;
+
+            case 'changeImageNodeStyles':
+                const nodeToRedo = document.getElementById(action.nodeId);
+                if (nodeToRedo) {
+                    nodeToRedo.style.cssText = action.newNodeStyles;
+                    const img = nodeToRedo.querySelector('img.node-image-content');
+                    if (img) img.style.cssText = action.newImageStyles;
+                }
+                break;
+            case 'pasteFormatting':
+                 action.changes.forEach(change => {
+                    const node = document.getElementById(change.nodeId);
+                    if (node) {
+                        const oldPosLeft = node.style.left;
+                        const oldPosTop = node.style.top;
+                        node.style.cssText = action.newFormatting.inlineStyle;
+                        node.className = action.newFormatting.className;
+                        node.style.left = oldPosLeft;
+                        node.style.top = oldPosTop;
+                        const image = node.querySelector('img.node-image-content');
+                        if (image && action.newFormatting.imageStyle) {
+                            image.style.cssText = action.newFormatting.imageStyle;
+                        }
+                        updateNodeVisuals(node);
+                    }
+                });
+                needsRedraw = true;
+                break;
+        }
+        recordAction(action, false, true);
+        if (needsRedraw) drawLines();
+        updateSelectionVisuals();
+    }
     function handleCut() { handleCopy(); if (appClipboard.items.length > 0) { appClipboard.type = 'cut'; handleDelete(); } }
-    function handlePaste() { if (appClipboard.items.length === 0) return; const pasteOffsetX = 20, pasteOffsetY = 20; const worldMousePaste = screenToWorld(globalScreenMouse.x, globalScreenMouse.y); let basePasteX, basePasteY; const canvasRect = canvasEl.getBoundingClientRect(); if (globalScreenMouse.x < canvasRect.left || globalScreenMouse.x > canvasRect.right || globalScreenMouse.y < canvasRect.top || globalScreenMouse.y > canvasRect.bottom || (globalScreenMouse.x === 0 && globalScreenMouse.y === 0)) { basePasteX = appClipboard.anchor.left + pasteOffsetX; basePasteY = appClipboard.anchor.top + pasteOffsetY; } else { basePasteX = worldMousePaste.x; basePasteY = worldMousePaste.y; } const pastedNodesData = []; clearSelection(); appClipboard.items.forEach(itemData => { const newX = basePasteX + itemData.relativeLeft; const newY = basePasteY + itemData.relativeTop; const newNode = createNode(itemData.contentHTML, newX, newY, null, { recordUndo: false }); newNode.className = itemData.className; if (!newNode.classList.contains('node')) newNode.classList.add('node'); newNode.style.cssText += itemData.inlineStyle; newNode.style.width = `${itemData.width}px`; newNode.style.height = `${itemData.height}px`; newNode.style.left = `${newX}px`; newNode.style.top = `${newY}px`; updateNodeVisuals(newNode); selectedItems.add(newNode.id); pastedNodesData.push(getNodeDataForUndo(newNode)); }); recordAction({ type: 'pasteNodes', nodesData: pastedNodesData }); updateSelectionVisuals(); drawLines(); if (appClipboard.type === 'cut') appClipboard = { type: null, items: [], anchor: { left: 0, top: 0 } }; }
+    function handlePaste() {
+        if (!appClipboard.items || appClipboard.items.length === 0) return;
+
+        const canvasRect = canvasEl.getBoundingClientRect();
+        const isMouseOutside = globalScreenMouse.x < canvasRect.left || globalScreenMouse.x > canvasRect.right || globalScreenMouse.y < canvasRect.top || globalScreenMouse.y > canvasRect.bottom || (globalScreenMouse.x === 0 && globalScreenMouse.y === 0);
+        const worldMousePaste = screenToWorld(globalScreenMouse.x, globalScreenMouse.y);
+        const basePastePos = isMouseOutside ? { x: appClipboard.anchor.left + 20, y: appClipboard.anchor.top + 20 } : { x: worldMousePaste.x, y: worldMousePaste.y };
+
+        clearSelection();
+
+        const idMap = new Map();
+        const pastedNodesData = [];
+
+        // 1. Criar os novos nós e mapear os IDs antigos para os novos
+        appClipboard.items.forEach(itemData => {
+            const newPos = { x: basePastePos.x + itemData.relativeLeft, y: basePastePos.y + itemData.relativeTop };
+            const newNode = createNode(itemData.type === 'text' ? itemData.contentHTML : null, newPos.x, newPos.y, null, { recordUndo: false, type: itemData.type, imageUrl: itemData.imageUrl });
+
+            Object.assign(newNode.style, { cssText: itemData.inlineStyle, width: `${itemData.width}px`, height: `${itemData.height}px`, left: `${newPos.x}px`, top: `${newPos.y}px` });
+            newNode.className = itemData.className;
+            if (itemData.type === 'image' && itemData.imageStyle) newNode.querySelector('img.node-image-content').style.cssText = itemData.imageStyle;
+            if (itemData.type === 'text') Object.assign(newNode.querySelector('.content').style, { textAlign: itemData.contentTextAlign || '', lineHeight: itemData.contentLineHeight || '' });
+
+            newNode.classList.remove('selected', 'editing', 'style-target');
+            updateNodeVisuals(newNode);
+
+            selectedItems.add(newNode.id);
+            idMap.set(itemData.originalId, newNode.id); // Mapeia o ID antigo (da cópia) para o novo ID
+            pastedNodesData.push(getNodeDataForUndo(newNode));
+        });
+
+        // 2. Criar as novas conexões usando o mapa de IDs
+        const pastedConnectionsData = [];
+        if (appClipboard.connections) {
+            appClipboard.connections.forEach(connData => {
+                const newFromId = idMap.get(connData.from);
+                const newToId = idMap.get(connData.to);
+
+                if (newFromId && newToId) {
+                    const newConnection = { ...connData, from: newFromId, to: newToId };
+                    connections.push(newConnection);
+                    pastedConnectionsData.push(newConnection);
+                }
+            });
+        }
+
+        // 3. Gravar uma única ação de "colar" para o histórico de undo/redo
+        if (pastedNodesData.length > 0) {
+            recordAction({ type: 'pasteNodes', nodesData: pastedNodesData, connectionsData: pastedConnectionsData });
+        }
+
+        updateSelectionVisuals();
+        drawLines();
+        if (appClipboard.type === 'cut') {
+            appClipboard = { type: null, items: [], connections: [], anchor: { left: 0, top: 0 } };
+        }
+    }
+
+    // --- START: Copy/Paste Formatting Logic ---
+    function handleCopyFormatting() {
+        if (selectedItems.size !== 1) {
+            showModal("Por favor, selecione um único nó para copiar a formatação.");
+            return;
+        }
+        const sourceId = selectedItems.values().next().value;
+        const sourceNode = document.getElementById(sourceId);
+
+        if (!sourceNode || !sourceNode.classList.contains('node')) {
+             showModal("A cópia de formatação só funciona para nós (itens), não para grupos.");
+            return;
+        }
+
+        const imageEl = sourceNode.querySelector('img.node-image-content');
+
+        formattingClipboard = {
+            width: sourceNode.style.width,
+            height: sourceNode.style.height,
+            inlineStyle: sourceNode.style.cssText,
+            className: sourceNode.className,
+            imageStyle: imageEl ? imageEl.style.cssText : null
+        };
+
+        showModal("Formatação copiada!");
+        const dropdown = copyFormattingBtn.closest('.dropdown-panel');
+        if (dropdown) dropdown.classList.add('hidden');
+    }
+
+    function handlePasteFormatting() {
+        if (!formattingClipboard) {
+            showModal("Nenhuma formatação na área de transferência. Use 'Copiar Estilo' primeiro.");
+            return;
+        }
+        if (selectedItems.size === 0) {
+            showModal("Por favor, selecione um ou mais nós para aplicar a formatação.");
+            return;
+        }
+
+        const changes = [];
+        selectedItems.forEach(nodeId => {
+            const targetNode = document.getElementById(nodeId);
+            if (targetNode && targetNode.classList.contains('node')) {
+                const oldPosLeft = targetNode.style.left;
+                const oldPosTop = targetNode.style.top;
+
+                changes.push({
+                    nodeId: nodeId,
+                    oldInlineStyle: targetNode.style.cssText,
+                    oldClassName: targetNode.className,
+                    oldImageStyle: targetNode.querySelector('img.node-image-content')?.style.cssText || null
+                });
+
+                targetNode.style.cssText = formattingClipboard.inlineStyle;
+                targetNode.className = formattingClipboard.className;
+
+                targetNode.style.left = oldPosLeft;
+                targetNode.style.top = oldPosTop;
+
+                const targetImage = targetNode.querySelector('img.node-image-content');
+                if (targetImage && formattingClipboard.imageStyle) {
+                    targetImage.style.cssText = formattingClipboard.imageStyle;
+                }
+
+                updateNodeVisuals(targetNode);
+            }
+        });
+
+        if (changes.length > 0) {
+            recordAction({ type: 'pasteFormatting', changes, newFormatting: { ...formattingClipboard } });
+        }
+
+        drawLines();
+
+        const dropdown = pasteFormattingBtn.closest('.dropdown-panel');
+        if (dropdown) dropdown.classList.add('hidden');
+    }
+    // --- END: Copy/Paste Formatting Logic ---
+
+    // --- START: Copy/Paste Text Formatting Logic ---top
+    function handleCopyTextFormatting() {
+        if (selectedItems.size !== 1) {
+            showModal("Por favor, selecione um único item de texto para copiar a formatação.");
+            return;
+        }
+        const sourceId = selectedItems.values().next().value;
+        const sourceNode = document.getElementById(sourceId);
+
+        if (!sourceNode || !sourceNode.querySelector('.content')) {
+            showModal("A cópia de formatação só funciona para itens com texto.");
+            return;
+        }
+
+        const contentDiv = sourceNode.querySelector('.content');
+
+        // Usa a nova e robusta função de análise para criar a receita.
+        const sequentialRecipe = buildFormatRecipe(contentDiv);
+
+        textFormattingClipboard = {
+            isComplex: true,
+            recipe: sequentialRecipe,
+            lineHeight: contentDiv.style.lineHeight || 'normal'
+        };
+
+        showModal("Formatação sequencial copiada!");
+        const dropdown = document.getElementById('copyTextFormattingBtn').closest('.dropdown-panel');
+        if (dropdown) dropdown.classList.add('hidden');
+    }
+
+    function handlePasteTextFormatting() {
+        if (!textFormattingClipboard || !textFormattingClipboard.isComplex) {
+            showModal("Nenhuma formatação na área de transferência. Use 'Copiar Formatação' primeiro.");
+            return;
+        }
+        if (selectedItems.size === 0) {
+            showModal("Por favor, selecione um ou mais nós para aplicar a formatação.");
+            return;
+        }
+
+        const changes = [];
+        const recipe = textFormattingClipboard.recipe;
+
+        selectedItems.forEach(nodeId => {
+            const targetNode = document.getElementById(nodeId);
+            if (targetNode && targetNode.querySelector('.content')) {
+                const contentDiv = targetNode.querySelector('.content');
+
+                const oldState = {
+                    innerHTML: contentDiv.innerHTML,
+                    lineHeight: contentDiv.style.lineHeight || 'normal'
+                };
+
+                // Divide o texto de destino em linhas para mapeamento.
+                const targetTextLines = contentDiv.innerText.split('\n');
+                let finalHTML = '';
+                let textLineIndex = 0;
+                // O molde padrão é texto puro.
+                let lastFormatTemplate = '%TEXTO%';
+
+                // Itera sobre a receita de formatação da origem.
+                recipe.forEach(item => {
+                    if (item.type === 'structure') {
+                        finalHTML += item.html;
+                    } else if (item.type === 'format') {
+                        // Armazena o último molde de formatação para o caso de o destino ter mais linhas.
+                        lastFormatTemplate = item.template;
+
+                        if (textLineIndex < targetTextLines.length) {
+                            const currentText = targetTextLines[textLineIndex] || '';
+                            // Preenche o molde com o texto do destino.
+                            finalHTML += item.template.replace('%TEXTO%', currentText);
+                            textLineIndex++;
+                        }
+                    }
+                });
+
+                // Se sobraram linhas de texto no destino, aplica a última formatação a elas.
+                if (textLineIndex < targetTextLines.length) {
+                    if (finalHTML !== '' && !finalHTML.endsWith('<br>') && !finalHTML.endsWith('<br/>')) {
+                        finalHTML += '<br>';
+                    }
+                    const remainingLines = targetTextLines.slice(textLineIndex).map(line => {
+                        return lastFormatTemplate.replace('%TEXTO%', line || '');
+                    });
+                    finalHTML += remainingLines.join('<br>');
+                }
+
+                contentDiv.innerHTML = finalHTML;
+                contentDiv.style.lineHeight = textFormattingClipboard.lineHeight;
+
+                changes.push({
+                    nodeId: nodeId,
+                    oldState: oldState,
+                    newState: {
+                        innerHTML: contentDiv.innerHTML,
+                        lineHeight: contentDiv.style.lineHeight
+                    }
+                });
+            }
+        });
+
+        if (changes.length > 0) {
+            recordAction({ type: 'pasteTextFormatting', changes: changes });
+        }
+
+        const dropdown = document.getElementById('pasteTextFormattingBtn').closest('.dropdown-panel');
+        if (dropdown) dropdown.classList.add('hidden');
+    }
+    // --- END: Copy/Paste Text Formatting Logic ---
+
+    /**
+    * Analisa a estrutura de formatação de um nó de forma recursiva e cria uma receita sequencial.
+    * @param {HTMLElement} contentDiv - O elemento .content a ser analisado.
+    * @returns {Array<Object>} Uma lista de "moldes" de formatação e estrutura.
+    */
+    function buildFormatRecipe(contentDiv) {
+        const recipe = [];
+        if (!contentDiv) return recipe;
+
+        // Função recursiva que navega pela árvore de nós.
+        function traverse(node) {
+            // Caso 1: É uma quebra de linha <br>, um elemento estrutural.
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toUpperCase() === 'BR') {
+                recipe.push({ type: 'structure', html: '<br>' });
+                return;
+            }
+
+            // Caso 2: É um nó de texto com conteúdo. Este é o nosso alvo.
+            if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim() !== '') {
+                let template = '%TEXTO%';
+                let parent = node.parentNode;
+
+                // Sobe pela árvore de pais, do mais interno para o mais externo.
+                while (parent && parent !== contentDiv) {
+                    // Clona o elemento pai SEM seus filhos (só a tag e atributos).
+                    const wrapper = parent.cloneNode(false);
+                    // Envolve o molde atual com a nova tag.
+                    wrapper.innerHTML = template;
+                    template = wrapper.outerHTML;
+                    // Sobe para o próximo pai.
+                    parent = parent.parentNode;
+                }
+                recipe.push({ type: 'format', template: template });
+                return;
+            }
+
+            // Caso 3: É um elemento. Continua a busca recursivamente em seus filhos.
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                node.childNodes.forEach(child => traverse(child));
+            }
+        }
+
+        // Inicia a análise a partir do nó de conteúdo.
+        contentDiv.childNodes.forEach(child => traverse(child));
+
+        // Se o nó estava totalmente vazio, garante um molde padrão.
+        if (recipe.length === 0) {
+            recipe.push({ type: 'format', template: '%TEXTO%' });
+        }
+
+        return recipe;
+    }
+
 
     function handleLoadDiagram(event) {
         const file = event.target.files[0];
@@ -1522,8 +2530,9 @@
                             contentDiv.style.textAlign = nodeData.contentTextAlign || 'center';
                             contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
                         }
+                        newNode.style.alignItems = nodeData.alignItems || 'center'; // Load vertical alignment
                     }
-                    
+
                     newNode.className = 'node ' + nodeData.className;
                     newNode.style.cssText = nodeData.inlineStyle;
                     newNode.style.left = nodeData.left;
@@ -1531,7 +2540,7 @@
                     newNode.style.width = nodeData.width;
                     newNode.style.height = nodeData.height;
                     updateNodeVisuals(newNode);
-                    
+
                     const match = nodeData.id.match(/node-(\d+)/);
                     if (match) maxLoadedIdNum = Math.max(maxLoadedIdNum, parseInt(match[1]));
                 });
@@ -1552,7 +2561,7 @@
 
     // --- Printing ---
     function getDiagramBounds() { let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity; let hasElements = false; document.querySelectorAll('.node, .group-container').forEach(item => { hasElements = true; minX = Math.min(minX, item.offsetLeft); minY = Math.min(minY, item.offsetTop); maxX = Math.max(maxX, item.offsetLeft + item.offsetWidth); maxY = Math.max(maxY, item.offsetTop + item.offsetHeight); }); if (!hasElements) return { x: 0, y: 0, width: A4_WIDTH_PX, height: A4_HEIGHT_PX, isEmpty: true }; const padding = 20; return { x: minX - padding, y: minY - padding, width: (maxX - minX) + 2 * padding, height: (maxY - minY) + 2 * padding, isEmpty: false }; }
-    
+
     function setupForPrint() {
         originalViewportBeforePrint = { ...viewport };
 
@@ -1578,7 +2587,7 @@
             // Usa pixels como fallback para tamanhos customizados
             dynamicPrintStyle.innerHTML = `@page { size: ${pixelWidth}px ${pixelHeight}px; margin: 0 !important; }`;
         }
-        
+
         // ✨ ALTERAÇÃO PRINCIPAL: Redimensiona explicitamente os contêineres para o tamanho da página em pixels
         panZoomContainer.style.width = `${pixelWidth}px`;
         panZoomContainer.style.height = `${pixelHeight}px`;
@@ -1602,7 +2611,7 @@
         svgContainer.style.height = '100%';
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
-        
+
         if (originalViewportBeforePrint) {
             viewport.scale = originalViewportBeforePrint.scale;
             viewport.panX = originalViewportBeforePrint.panX;
@@ -1616,27 +2625,31 @@
     // --- Event Handlers: Mouse, Keyboard, General ---
     function configureToolbarForNodeType(node) {
         const isImageNode = !!node.querySelector('img.node-image-content');
-        
+
         // Seções de TEXTO são escondidas para nós de imagem
         document.querySelector('[data-toolbar-section="text-format"]').style.display = isImageNode ? 'none' : 'flex';
         document.querySelector('[data-toolbar-section="text-align"]').style.display = isImageNode ? 'none' : 'flex';
+        document.querySelector('[data-toolbar-section="vertical-align"]').style.display = isImageNode ? 'none' : 'flex';
         document.querySelector('[data-toolbar-section="text-style"]').style.display = isImageNode ? 'none' : 'flex';
         document.querySelector('[data-toolbar-section="text-color"]').style.display = isImageNode ? 'none' : 'flex';
 
         // Seção de FUNDO de texto é escondida para nós de imagem
         document.querySelector('[data-toolbar-section="background"]').style.display = isImageNode ? 'none' : 'flex';
 
-        // ✨ CORREÇÃO: Seções de BORDA e FORMA agora são sempre visíveis para qualquer nó
-        document.querySelector('[data-toolbar-section="border"]').style.display = 'flex';
+        // ✨ CORREÇÃO: O seletor foi atualizado de "border" para "border-color" para corresponder ao novo HTML
+        document.querySelector('[data-toolbar-section="border-color"]').style.display = 'flex';
         document.querySelector('[data-toolbar-section="shape"]').style.display = 'flex';
 
-        // ✨ Seção de IMAGEM só aparece para nós de imagem
+        // Seção de IMAGEM só aparece para nós de imagem
         document.querySelector('[data-toolbar-section="image-style"]').style.display = isImageNode ? 'flex' : 'none';
     }
 
     // --- Group Context Menu Logic ---
-    function hideGroupContextMenu() { groupContextMenu.classList.add('hidden'); }
-    
+    function hideGroupContextMenu() {
+        groupContextMenu.classList.add('hidden');
+        manageToolbarPositions();
+    }
+
     function updateGroupContextMenuState(group) {
         if (!group) return;
         const styles = window.getComputedStyle(group);
@@ -1644,7 +2657,7 @@
         groupContextMenu.querySelector('[data-group-style="borderColor"]').value = rgbToHex(styles.borderColor);
         groupContextMenu.querySelector('[data-group-style="borderStyle"]').value = styles.borderStyle;
     }
-    
+
     function applyGroupStyle(styleKey, value) {
         const groupId = groupContextMenu.dataset.targetGroupId;
         if (!groupId) return;
@@ -1660,10 +2673,10 @@
             oldValue = group.style[styleKey];
         }
 
-        const changes = [{ 
-            groupId, 
-            style: isTransparentToggle ? 'backgroundColor' : styleKey, 
-            oldValue, 
+        const changes = [{
+            groupId,
+            style: isTransparentToggle ? 'backgroundColor' : styleKey,
+            oldValue,
             newValue: isTransparentToggle ? 'transparent' : value
         }];
 
@@ -1689,12 +2702,11 @@
         if (group) {
             e.stopPropagation();
             hideMultiSelectToolbar();
-            
-            groupContextMenu.style.left = `${e.clientX + 5}px`;
-            groupContextMenu.style.top = `${e.clientY + 5}px`;
+
             groupContextMenu.classList.remove('hidden');
             groupContextMenu.dataset.targetGroupId = group.id;
             updateGroupContextMenuState(group);
+            manageToolbarPositions();
         }
     }
 
@@ -1720,7 +2732,7 @@
         if (button && button.dataset.groupStyle === 'transparent') {
             applyGroupStyle('transparent', null);
         }
-        
+
         const swatch = e.target.closest('.color-swatch');
         if (swatch) {
             const color = swatch.dataset.color;
@@ -1732,16 +2744,46 @@
         }
     });
 
+    // --- Novo Listener de Input para Sincronização de Cores no Painel Múltiplo ---
+    multiSelectToolbar.addEventListener('input', e => {
+        const el = e.target;
 
-    function handleNodeDblClick(e) { 
-        e.stopPropagation(); 
+        const isValidHex = (hex) => /^#([0-9A-F]{3}){1,2}$/i.test(hex);
+
+        // Se o usuário digitou em um campo de texto de cor...
+        if (el.classList.contains('hex-color-input')) {
+            const hexValue = el.value.startsWith('#') ? el.value : '#' + el.value;
+            if (isValidHex(hexValue)) {
+                // Encontra o seletor de cor correspondente e atualiza seu valor
+                const style = el.dataset.multiStyleHex;
+                const colorInput = multiSelectToolbar.querySelector(`input[data-multi-style="${style}"]`);
+                if (colorInput) {
+                    colorInput.value = hexValue;
+                }
+            }
+            return;
+        }
+
+        // Se o usuário mudou a cor pelo seletor de cor...
+        if (el.type === 'color' && el.dataset.multiStyle) {
+             const style = el.dataset.multiStyle;
+             const hexInput = multiSelectToolbar.querySelector(`input[data-multi-style-hex="${style}"]`);
+             if (hexInput) {
+                // Atualiza o campo de texto correspondente
+                hexInput.value = el.value;
+             }
+        }
+    });
+
+    function handleNodeDblClick(e) {
+        e.stopPropagation();
         const node = e.currentTarget;
-        
-        if (editingNode && editingNode !== node) { 
+
+        if (editingNode && editingNode !== node) {
             finishEditing(editingNode);
-        } 
-        editingNode = node; 
-        node.classList.add('editing'); 
+        }
+        editingNode = node;
+        node.classList.add('editing');
 
         const isImageNode = !!node.querySelector('img.node-image-content');
 
@@ -1753,19 +2795,19 @@
                 node.dataset.originalImageStylesForUndo = imageEl.style.cssText;
             }
         } else { // type === 'text'
-            const contentDiv = node.querySelector('.content'); 
-            contentDiv.contentEditable = true; 
-            contentDiv.focus(); 
-            const selection = window.getSelection(); 
-            const range = document.createRange(); 
-            range.selectNodeContents(contentDiv); 
-            selection.removeAllRanges(); 
-            selection.addRange(range); 
+            const contentDiv = node.querySelector('.content');
+            contentDiv.contentEditable = true;
+            contentDiv.focus();
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(contentDiv);
+            selection.removeAllRanges();
+            selection.addRange(range);
         }
 
         configureToolbarForNodeType(node);
         updateToolbarState(node);
-        showToolbar(node); 
+        showToolbar(node);
     }
 
     function finishEditing(node) {
@@ -1777,20 +2819,20 @@
             const originalNodeStyles = node.dataset.originalNodeStylesForUndo;
             const originalImageStyles = node.dataset.originalImageStylesForUndo;
             const imageEl = node.querySelector('img.node-image-content');
-            
+
             if (imageEl && typeof originalImageStyles !== 'undefined' && typeof originalNodeStyles !== 'undefined') {
                 const newNodeStyles = node.style.cssText;
                 const newImageStyles = imageEl.style.cssText;
-                
+
                 // Verifica se houve mudança em qualquer um dos estilos
                 if (originalNodeStyles !== newNodeStyles || originalImageStyles !== newImageStyles) {
-                    recordAction({ 
-                        type: 'changeImageNodeStyles', 
-                        nodeId: node.id, 
+                    recordAction({
+                        type: 'changeImageNodeStyles',
+                        nodeId: node.id,
                         oldNodeStyles: originalNodeStyles,
-                        oldImageStyles: originalImageStyles, 
+                        oldImageStyles: originalImageStyles,
                         newNodeStyles: newNodeStyles,
-                        newImageStyles: newImageStyles 
+                        newImageStyles: newImageStyles
                     });
                 }
                 delete node.dataset.originalNodeStylesForUndo;
@@ -1808,8 +2850,8 @@
         }
 
         node.classList.remove('editing');
-        if (editingNode === node) { 
-            editingNode = null; 
+        if (editingNode === node) {
+            editingNode = null;
         }
         hideToolbar();
     }
@@ -1823,25 +2865,92 @@
         }, 100);
     }
 
-    function handleInteractionEnd(e) { 
-        if (isPanning) { 
-            isPanning = false; 
-            canvasEl.style.cursor = 'default'; 
-            return; 
-        } 
-        let actionRecorded = false; 
-        if (actionState.type === 'dragging' && actionState.moved) { const changes = actionState.initialPositions.map(pos => ({ nodeId: pos.element.id, oldLeft: `${pos.initialLeft}px`, oldTop: `${pos.initialTop}px`, newLeft: pos.element.style.left, newTop: pos.element.style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop); if (changes.length > 0) { recordAction({ type: 'moveNodes', changes: changes }); actionRecorded = true; } } else if (actionState.type === 'resizing' && actionState.target && actionState.moved) { const node = actionState.target; if (node.offsetWidth !== actionState.startWidth || node.offsetHeight !== actionState.startHeight) { recordAction({ type: 'resizeNode', nodeId: node.id, oldWidth: `${actionState.startWidth}px`, oldHeight: `${actionState.startHeight}px`, newWidth: node.style.width, newHeight: node.style.height }); actionRecorded = true; } } else if (actionState.type === 'linking' && actionState.target) {
-            const snappedEl = document.querySelector('.connector.snap-target');
-            if (snappedEl) {
-                const from = { id: actionState.target.id, pos: actionState.linkStartPos };
-                const to = { id: snappedEl.dataset.nodeId, pos: snappedEl.dataset.position };
-                const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth };
-                connections.push(newConnection);
-                recordAction({ type: 'createConnection', connectionData: newConnection });
-                actionRecorded = true;
-            }
-            if(snappedEl) snappedEl.classList.remove('snap-target');
-        } else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) { selectItem(actionState.target, actionState.isCtrl); const targetNode = actionState.target.classList.contains('node') ? actionState.target : null; if (editingNode && editingNode !== targetNode) { finishEditing(editingNode); } } else if (actionState.type === 'marquee') { marquee.style.visibility = 'hidden'; selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl); } else if (actionState.type === 'potential-marquee' && !actionState.moved) { if (!actionState.isCtrl) clearSelection(); if (editingNode) finishEditing(editingNode); else hideToolbar(); } if (actionState.target) actionState.target.classList.remove('dragging'); actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] }; document.body.style.cursor = 'default'; drawLines(); }
+    function handleInteractionEnd(e) {
+    if (isPanning) {
+        isPanning = false;
+        canvasEl.style.cursor = 'default';
+        return;
+    }
+
+    let actionRecorded = false;
+
+    if (actionState.type === 'dragging' && actionState.moved) {
+        alignmentGuidesSvg.innerHTML = ''; // Limpa as guias
+        const changes = actionState.initialPositions.map(pos => ({
+            nodeId: pos.element.id,
+            oldLeft: `${pos.initialLeft}px`,
+            oldTop: `${pos.initialTop}px`,
+            newLeft: pos.element.style.left,
+            newTop: pos.element.style.top
+        })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop);
+
+        if (changes.length > 0) {
+            recordAction({ type: 'moveNodes', changes: changes });
+            actionRecorded = true;
+        }
+    }
+    else if (actionState.type === 'resizing' && actionState.target && actionState.moved) {
+        alignmentGuidesSvg.innerHTML = ''; // Limpa as guias
+        const node = actionState.target;
+        const hasChanged = node.offsetWidth !== actionState.original.width ||
+                            node.offsetHeight !== actionState.original.height ||
+                            node.offsetLeft !== actionState.original.x ||
+                            node.offsetTop !== actionState.original.y;
+
+        if (hasChanged) {
+            recordAction({
+                type: 'resizeNode',
+                nodeId: node.id,
+                oldState: {
+                    left: `${actionState.original.x}px`,
+                    top: `${actionState.original.y}px`,
+                    width: `${actionState.original.width}px`,
+                    height: `${actionState.original.height}px`
+                },
+                newState: {
+                    left: node.style.left,
+                    top: node.style.top,
+                    width: node.style.width,
+                    height: node.style.height
+                }
+            });
+            actionRecorded = true;
+        }
+    }
+    else if (actionState.type === 'linking' && actionState.target) {
+        const snappedEl = document.querySelector('.connector.snap-target');
+        if (snappedEl) {
+            const from = { id: actionState.target.id, pos: actionState.linkStartPos };
+            const to = { id: snappedEl.dataset.nodeId, pos: snappedEl.dataset.position };
+            const newConnection = { from: from.id, to: to.id, fromPos: from.pos, toPos: to.pos, color: currentLineColor, width: currentLineStrokeWidth };
+            connections.push(newConnection);
+            recordAction({ type: 'createConnection', connectionData: newConnection });
+            actionRecorded = true;
+        }
+        if(snappedEl) snappedEl.classList.remove('snap-target');
+    }
+    else if (actionState.type === 'potential-drag' && !actionState.moved && actionState.target) {
+        selectItem(actionState.target, actionState.isCtrl);
+        const targetNode = actionState.target.classList.contains('node') ? actionState.target : null;
+        if (editingNode && editingNode !== targetNode) {
+            finishEditing(editingNode);
+        }
+    }
+    else if (actionState.type === 'marquee') {
+        marquee.style.visibility = 'hidden';
+        selectNodesInRect(marquee.getBoundingClientRect(), actionState.isCtrl);
+    }
+    else if (actionState.type === 'potential-marquee' && !actionState.moved) {
+        if (!actionState.isCtrl) clearSelection();
+        if (editingNode) finishEditing(editingNode);
+        else hideToolbar();
+    }
+
+    if (actionState.target) actionState.target.classList.remove('dragging');
+    actionState = { type: null, target: null, startX: 0, startY: 0, startWidth: 0, startHeight: 0, linkStartPos: null, isCtrl: false, moved: false, initialPositions: [] };
+    document.body.style.cursor = 'default';
+    drawLines();
+}
 
     // --- Initial Event Listener Setup ---
     window.addEventListener('beforeprint', setupForPrint);
@@ -1853,26 +2962,41 @@
     zoomOutBtnManual.addEventListener('click', () => handleManualZoom(false));
     zoomResetBtnManual.addEventListener('click', resetZoomTo100);
 
-    globalResizeHandle.addEventListener('mousedown', e => {
-        e.stopPropagation();
-        const nodeId = globalResizeHandle.dataset.nodeId;
-        const node = document.getElementById(nodeId);
-        if(node) {
-             actionState = { ...actionState, type: 'resizing', target: node, startX: e.clientX, startY: e.clientY, startWidth: node.offsetWidth, startHeight: node.offsetHeight }; 
-             document.body.style.cursor = 'se-resize';
-        }
-    });
-
     document.addEventListener('mousedown', e => {
-        if (e.target.id === 'global-resize-handle') return;
-
-        if (e.button === 1) { 
+        if (e.button === 1) {
             isPanning = true;
             lastPanPosition = { x: e.clientX, y: e.clientY };
             canvasEl.style.cursor = 'grabbing';
             e.preventDefault();
             e.stopPropagation();
             return;
+        }
+
+        // --- LÓGICA DE REDIMENSIONAMENTO (NOVO) ---
+        // Verifica se o clique foi em uma das novas alças de redimensionamento
+        const resizeHandle = e.target.closest('.resize-handle');
+        if (resizeHandle) {
+            e.stopPropagation();
+            const node = resizeHandle.closest('.node');
+            if (node) {
+                actionState = {
+                    type: 'resizing',
+                    target: node,
+                    direction: resizeHandle.dataset.direction,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    // Armazena a posição e dimensões originais no mundo do canvas
+                    original: {
+                        x: node.offsetLeft,
+                        y: node.offsetTop,
+                        width: node.offsetWidth,
+                        height: node.offsetHeight
+                    },
+                    moved: false
+                };
+                document.body.style.cursor = window.getComputedStyle(resizeHandle).cursor;
+            }
+            return; // Impede que o evento continue e cause um drag do nó
         }
 
         if (toolbar.contains(e.target) || e.target.closest('#top-buttons-container') || multiSelectToolbar.contains(e.target) || connectionToolbar.contains(e.target) || groupContextMenu.contains(e.target)) {
@@ -1922,111 +3046,183 @@
             }
         } else { actionState.type = 'potential-marquee'; }
     });
-    document.addEventListener('mousemove', e => { 
-        globalScreenMouse = { x: e.clientX, y: e.clientY }; 
-        if (isPanning) { 
-            const dx = e.clientX - lastPanPosition.x, dy = e.clientY - lastPanPosition.y; 
-            viewport.panX += dx; viewport.panY += dy; 
-            lastPanPosition = { x: e.clientX, y: e.clientY }; 
-            applyViewportTransform(); 
-            return; 
-        } 
-        if (!actionState.type) return; 
-        if (!actionState.moved && (Math.abs(e.clientX - actionState.startX) > DRAG_THRESHOLD || Math.abs(e.clientY - actionState.startY) > DRAG_THRESHOLD)) { 
-            actionState.moved = true; 
-            if (actionState.type === 'potential-drag' && actionState.target) { 
-                actionState.type = 'dragging'; 
-                actionState.target.classList.add('dragging'); 
-                document.body.style.cursor = 'grabbing'; 
-                const itemToSelect = actionState.target; 
-                if (!actionState.isCtrl && !selectedItems.has(itemToSelect.id)) { 
-                    selectItem(itemToSelect, false); 
-                } 
-                const targets = selectedItems.has(itemToSelect.id) ? Array.from(selectedItems).map(id => document.getElementById(id)) : [itemToSelect]; 
-                actionState.initialPositions = targets.filter(Boolean).map(el => ({ element: el, initialLeft: el.offsetLeft, initialTop: el.offsetTop })); 
-            } else if (actionState.type === 'potential-marquee') { 
-                actionState.type = 'marquee'; 
-                marquee.style.visibility = 'visible'; 
-            } 
-        } 
-        switch (actionState.type) { 
-            case 'dragging': 
-                actionState.initialPositions.forEach(pos => { 
-                    pos.element.style.left = `${pos.initialLeft + (e.clientX - actionState.startX) / viewport.scale}px`; 
-                    pos.element.style.top = `${pos.initialTop + (e.clientY - actionState.startY) / viewport.scale}px`; 
-                }); 
-                updateSelectionVisuals();
-                drawLines(); 
-                break; 
-            case 'resizing': 
-                if (actionState.target) { 
-                    actionState.target.style.width = `${Math.max(100, actionState.startWidth + (e.clientX - actionState.startX) / viewport.scale)}px`; 
-                    actionState.target.style.height = `${Math.max(40, actionState.startHeight + (e.clientY - actionState.startY) / viewport.scale)}px`; 
-                    updateSelectionVisuals();
-                    drawLines(); 
-                } 
-                break; 
-            case 'linking':
-                const worldMouseDrag = screenToWorld(e.clientX, e.clientY);
-                let snappedConnector = null;
-                let minDistance = Infinity;
+    document.addEventListener('mousemove', e => {
+    globalScreenMouse = { x: e.clientX, y: e.clientY };
+    if (isPanning) {
+        const dx = e.clientX - lastPanPosition.x, dy = e.clientY - lastPanPosition.y;
+        viewport.panX += dx; viewport.panY += dy;
+        lastPanPosition = { x: e.clientX, y: e.clientY };
+        applyViewportTransform();
+        return;
+    }
+    if (!actionState.type) return;
+    if (!actionState.moved && (Math.abs(e.clientX - actionState.startX) > DRAG_THRESHOLD || Math.abs(e.clientY - actionState.startY) > DRAG_THRESHOLD)) {
+        actionState.moved = true;
+        if (actionState.type === 'potential-drag' && actionState.target) {
+            actionState.type = 'dragging';
+            actionState.target.classList.add('dragging');
+            document.body.style.cursor = 'grabbing';
+            const itemToSelect = actionState.target;
+            if (!actionState.isCtrl && !selectedItems.has(itemToSelect.id)) {
+                selectItem(itemToSelect, false);
+            }
+            const targets = selectedItems.has(itemToSelect.id) ? Array.from(selectedItems).map(id => document.getElementById(id)) : [itemToSelect];
+            actionState.initialPositions = targets.filter(Boolean).map(el => ({ element: el, initialLeft: el.offsetLeft, initialTop: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }));
+        } else if (actionState.type === 'potential-marquee') {
+            actionState.type = 'marquee';
+            marquee.style.visibility = 'visible';
+        }
+    }
+    switch (actionState.type) {
+        case 'dragging': { // ✨ BLOCO ATUALIZADO
+            const deltaX = (e.clientX - actionState.startX) / viewport.scale;
+            const deltaY = (e.clientY - actionState.startY) / viewport.scale;
 
-                const oldSnapTarget = document.querySelector('.connector.snap-target');
-                if (oldSnapTarget) oldSnapTarget.classList.remove('snap-target');
+            // 1. Calcular os limites da seleção inteira na sua posição *potencial*
+            let selectionBounds = {
+                minX: Infinity, minY: Infinity,
+                maxX: -Infinity, maxY: -Infinity,
+            };
+            actionState.initialPositions.forEach(pos => {
+                selectionBounds.minX = Math.min(selectionBounds.minX, pos.initialLeft);
+                selectionBounds.minY = Math.min(selectionBounds.minY, pos.initialTop);
+                selectionBounds.maxX = Math.max(selectionBounds.maxX, pos.initialLeft + pos.width);
+                selectionBounds.maxY = Math.max(selectionBounds.maxY, pos.initialTop + pos.height);
+            });
 
-                document.querySelectorAll('.connector').forEach(connEl => {
-                    const nodeId = connEl.dataset.nodeId;
-                    if (nodeId !== actionState.target.id) {
-                        const nodeEl = document.getElementById(nodeId);
-                        if (nodeEl) {
-                            const connPos = getConnectorPosition(nodeEl, connEl.dataset.position);
-                            const dx = connPos.x - worldMouseDrag.x;
-                            const dy = connPos.y - worldMouseDrag.y;
-                            const distance = Math.sqrt(dx * dx + dy * dy);
+            const potentialRect = {
+                left: selectionBounds.minX + deltaX,
+                top: selectionBounds.minY + deltaY,
+                width: selectionBounds.maxX - selectionBounds.minX,
+                height: selectionBounds.maxY - selectionBounds.minY,
+            };
 
-                            if (distance < CONNECTOR_SNAP_RADIUS && distance < minDistance) {
-                                minDistance = distance;
-                                snappedConnector = connEl;
-                            }
+            // 2. Obter os ajustes de snap
+            const movingItemIds = new Set(actionState.initialPositions.map(p => p.element.id));
+            const snapAdjustments = updateAndDrawAlignmentGuides(potentialRect, movingItemIds, 'move', { x: deltaX, y: deltaY });
+
+            // 3. Aplicar a posição final com o ajuste de snap a todos os nós
+            actionState.initialPositions.forEach(pos => {
+                pos.element.style.left = `${pos.initialLeft + deltaX + snapAdjustments.x}px`;
+                pos.element.style.top = `${pos.initialTop + deltaY + snapAdjustments.y}px`;
+            });
+
+            updateSelectionVisuals();
+            drawLines();
+            break;
+        }
+        case 'resizing':
+            if (!actionState.target) break;
+
+            actionState.moved = true;
+            const node = actionState.target;
+            const original = actionState.original;
+            const minWidth = 100, minHeight = 40;
+
+            let deltaX_resize = (e.clientX - actionState.startX) / viewport.scale;
+            let deltaY_resize = (e.clientY - actionState.startY) / viewport.scale;
+
+            // --- 1. CALCULAR GEOMETRIA POTENCIAL EM MEMÓRIA ---
+            let potentialRect_resize = { left: original.x, top: original.y, width: original.width, height: original.height };
+
+            if (actionState.direction.includes('r')) potentialRect_resize.width = original.width + deltaX_resize;
+            if (actionState.direction.includes('l')) { potentialRect_resize.width = original.width - deltaX_resize; potentialRect_resize.left = original.x + deltaX_resize; }
+            if (actionState.direction.includes('b')) potentialRect_resize.height = original.height + deltaY_resize;
+            if (actionState.direction.includes('t')) { potentialRect_resize.height = original.height - deltaY_resize; potentialRect_resize.top = original.y + deltaY_resize; }
+
+            potentialRect_resize.width = Math.max(minWidth, potentialRect_resize.width);
+            potentialRect_resize.height = Math.max(minHeight, potentialRect_resize.height);
+
+            // --- 2. OBTER SNAPS BASEADO NA GEOMETRIA EM MEMÓRIA (AGORA COM AJUSTE) ---
+            const movingItemIds_resize = new Set([node.id]);
+            const snapAdjustments_resize = updateAndDrawAlignmentGuides(potentialRect_resize, movingItemIds_resize, actionState.direction, { x: deltaX_resize, y: deltaY_resize });
+
+            // --- 3. APLICAR AJUSTES DE SNAP À GEOMETRIA FINAL ---
+            let finalRect = { ...potentialRect_resize };
+            if (actionState.direction.includes('l')) finalRect.left += snapAdjustments_resize.x;
+            if (actionState.direction.includes('r')) finalRect.width += snapAdjustments_resize.x;
+            if (actionState.direction.includes('t')) finalRect.top += snapAdjustments_resize.y;
+            if (actionState.direction.includes('b')) finalRect.height += snapAdjustments_resize.y;
+
+            // Se o snap ajustou a posição, a dimensão também precisa ser ajustada para o lado oposto não se mover
+            if (actionState.direction.includes('l') && snapAdjustments_resize.x !== 0) finalRect.width -= snapAdjustments_resize.x;
+            if (actionState.direction.includes('t') && snapAdjustments_resize.y !== 0) finalRect.height -= snapAdjustments_resize.y;
+
+            // --- 4. APLICAR ESTILOS AO NÓ UMA ÚNICA VEZ ---
+            finalRect.width = Math.max(minWidth, finalRect.width);
+            finalRect.height = Math.max(minHeight, finalRect.height);
+
+            node.style.left = `${finalRect.left}px`;
+            node.style.top = `${finalRect.top}px`;
+            node.style.width = `${finalRect.width}px`;
+            node.style.height = `${finalRect.height}px`;
+
+            drawLines();
+            break;
+        case 'linking':
+            const worldMouseDrag = screenToWorld(e.clientX, e.clientY);
+            let snappedConnector = null;
+            let minDistance = Infinity;
+
+            const oldSnapTarget = document.querySelector('.connector.snap-target');
+            if (oldSnapTarget) oldSnapTarget.classList.remove('snap-target');
+
+            document.querySelectorAll('.connector').forEach(connEl => {
+                const nodeId = connEl.dataset.nodeId;
+                if (nodeId !== actionState.target.id) {
+                    const nodeEl = document.getElementById(nodeId);
+                    if (nodeEl) {
+                        const connPos = getConnectorPosition(nodeEl, connEl.dataset.position);
+                        const dx = connPos.x - worldMouseDrag.x;
+                        const dy = connPos.y - worldMouseDrag.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance < CONNECTOR_SNAP_RADIUS && distance < minDistance) {
+                            minDistance = distance;
+                            snappedConnector = connEl;
                         }
                     }
-                });
-
-                if (snappedConnector) {
-                    snappedConnector.classList.add('snap-target');
                 }
+            });
 
-                drawLines();
-                break;
-            case 'marquee': 
-                const x = Math.min(e.clientX, actionState.startX), y = Math.min(e.clientY, actionState.startY), w = Math.abs(e.clientX - actionState.startX), h = Math.abs(e.clientY - actionState.startY); 
-                marquee.style.left = `${x}px`; 
-                marquee.style.top = `${y}px`; 
-                marquee.style.width = `${w}px`; 
-                marquee.style.height = `${h}px`; 
-                break; 
-        } 
-        if (actionState.type && !actionState.type.startsWith('potential')) e.preventDefault(); 
-    });
+            if (snappedConnector) {
+                snappedConnector.classList.add('snap-target');
+            }
+
+            drawLines();
+            break;
+        case 'marquee':
+            const x = Math.min(e.clientX, actionState.startX), y = Math.min(e.clientY, actionState.startY), w = Math.abs(e.clientX - actionState.startX), h = Math.abs(e.clientY - actionState.startY);
+            marquee.style.left = `${x}px`;
+            marquee.style.top = `${y}px`;
+            marquee.style.width = `${w}px`;
+            marquee.style.height = `${h}px`;
+            break;
+    }
+    if (actionState.type && !actionState.type.startsWith('potential')) e.preventDefault();
+});
     document.addEventListener('mouseup', handleInteractionEnd);
-    document.addEventListener('keydown', e => { 
+    document.addEventListener('keydown', e => {
         const activeEl = document.activeElement;
         const isEditingText = activeEl?.closest('.node.editing .content');
         const isInputFocused = ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl?.tagName);
 
-        if (e.ctrlKey || e.metaKey) {
+        // --- MELHORIA APLICADA AQUI ---
+        // Apenas aciona o Desfazer/Refazer global se o usuário NÃO estiver editando um texto.
+        if ((e.ctrlKey || e.metaKey) && !isEditingText) {
             if (e.key.toLowerCase() === 'z') { handleUndo(); e.preventDefault(); return; }
             if (e.key.toLowerCase() === 'y') { handleRedo(); e.preventDefault(); return; }
         }
-        
+
         if (isEditingText || isInputFocused) {
             if (e.key === 'Escape') {
                 if (isEditingText) finishEditing(editingNode);
             } else {
+                // Permite que o Ctrl+Z nativo (e outros atalhos de texto) funcione.
                 return;
             }
         }
-        
+
         if (e.key !== 'Escape' && (activeEl?.closest('.dropdown-panel:not(.hidden)') || activeEl?.closest('.menu-trigger-button')))
             if(!(e.ctrlKey || e.metaKey || ['Delete', 'Backspace', 'Enter'].includes(e.key))) return;
 
@@ -2041,7 +3237,7 @@
                 }
             }
         }
-        
+
         if (selectedItems.size > 0 && !isEditingText && !isInputFocused) {
             let moved = false;
             switch (e.key) {
@@ -2052,11 +3248,11 @@
             }
             if (moved) { e.preventDefault(); updateSelectionVisuals(); drawLines(); }
         }
-        
+
         if (['Delete', 'Backspace'].includes(e.key) && !isEditingText && !isInputFocused) {
             if (selectedItems.size > 0 || selectedConnections.size > 0) { e.preventDefault(); handleDelete(); }
         }
-        
+
         if (e.key === 'Escape') {
             clearSelection();
             if (editingNode) finishEditing(editingNode); else hideToolbar();
@@ -2074,7 +3270,9 @@
     loadDiagramInput.addEventListener('change', handleLoadDiagram);
     printToPDFBtn.addEventListener('click', () => window.print());
     deleteBtn.addEventListener('click', handleDelete);
-    
+    copyFormattingBtn.addEventListener('click', handleCopyFormatting);
+    pasteFormattingBtn.addEventListener('click', handlePasteFormatting);
+
     toolbar.addEventListener('mousedown', e => {
         if (e.target.closest('select, input, button')) {
             return;
@@ -2096,12 +3294,15 @@
             if (palette.id === 'palette-text') {
                 applyFormat('foreColor', color);
                 document.getElementById('customColor').value = color;
+                document.getElementById('customColorHex').value = color; // Sincroniza o campo de texto
             } else if (palette.id === 'palette-bg') {
                 applyNodeStyle('backgroundColor', color);
                 toolbar.querySelector('input[data-style="backgroundColor"]').value = color;
+                toolbar.querySelector('input[data-style-hex="backgroundColor"]').value = color; // Sincroniza
             } else if (palette.id === 'palette-border') {
                 applyNodeStyle('borderColor', color);
                 toolbar.querySelector('input[data-style="borderColor"]').value = color;
+                 toolbar.querySelector('input[data-style-hex="borderColor"]').value = color; // Sincroniza
             }
             return;
         }
@@ -2111,44 +3312,88 @@
             const cmd = btn.dataset.cmd;
             const style = btn.dataset.style;
             const textAlign = btn.dataset.textalign;
+            const verticalAlign = btn.dataset.verticalalign;
 
             if (cmd) {
                 applyFormat(cmd);
             } else if (textAlign) {
                 applyTextAlign(textAlign);
+            } else if (verticalAlign) {
+                applyVerticalAlign(verticalAlign);
             } else if (style === 'transparent') {
                 toggleNodeTransparency();
             }
         }
     });
 
-    toolbar.addEventListener('change', e => {
-        const el = e.target;
-        if (el.closest('[data-toolbar-section="image-style"]')) {
-            applyImageStyles();
-            return;
-        }
-        const style = el.dataset.style;
-        const cmd = el.dataset.cmd;
-        const val = el.value;
-        if (cmd && editingNode) {
-            applyFormat(cmd, val);
-        } else if (style && editingNode) {
-            applyNodeStyle(style, val);
-        }
-        if (editingNode && (el.tagName === 'SELECT' || el.type === 'color') && !editingNode.querySelector('img.node-image-content')) {
-            editingNode.querySelector('.content').focus();
-        }
-    });
     toolbar.addEventListener('input', e => {
         const el = e.target;
+        if (!editingNode) return;
+
+        // --- LÓGICA DE SINCRONIZAÇÃO DE COR ---
+        const isValidHex = (hex) => /^#([0-9A-F]{3}){1,2}$/i.test(hex);
+
+        if (el.classList.contains('hex-color-input')) {
+            const hexValue = el.value.startsWith('#') ? el.value : '#' + el.value;
+            if (isValidHex(hexValue)) {
+                // Sincroniza o <input type="color"> correspondente
+                let colorInput;
+                if(el.id === 'customColorHex') {
+                    colorInput = document.getElementById('customColor');
+                } else {
+                    const style = el.dataset.styleHex;
+                    colorInput = toolbar.querySelector(`input[data-style="${style}"]`);
+                }
+
+                if (colorInput) {
+                    colorInput.value = hexValue;
+                    // Dispara o evento de 'input' no color picker para reusar a lógica de aplicação de estilo
+                    colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+            return; // Encerra aqui para evitar dupla execução
+        }
+
+        // --- LÓGICA EXISTENTE (ADAPTADA) ---
         if (el.closest('[data-toolbar-section="image-style"]')) {
             applyImageStyles();
             return;
         }
-        const style = el.dataset.style; 
-        if (style && el.type === 'number') applyNodeStyle(style, el.value);
+
+        const style = el.dataset.style;
+        const cmd = el.dataset.cmd;
+        let val = el.value;
+
+        // Sincroniza o campo de texto quando o <input type="color"> muda
+        if (el.type === 'color') {
+            let hexInput;
+            if (el.id === 'customColor') {
+                hexInput = document.getElementById('customColorHex');
+            } else {
+                hexInput = toolbar.querySelector(`input[data-style-hex="${style}"]`);
+            }
+            if (hexInput) hexInput.value = val;
+        }
+
+        // Aplica o estilo
+        if (el.id === 'customColor') { // Tratamento especial para cor de texto
+             applyFormat('foreColor', val);
+        } else if (cmd) {
+            applyFormat(cmd, val);
+        } else if (style) {
+            applyNodeStyle(style, val);
+        }
+
+        if (el.tagName === 'SELECT' || el.type === 'color') {
+            if (!editingNode.querySelector('img.node-image-content')) {
+                editingNode.querySelector('.content').focus();
+            }
+        }
     });
+
+    // Remove o antigo listener de 'change' para o customColorInput
+    // customColorInput.addEventListener('input', e => applyFormat('foreColor', e.target.value));
+    // Esta linha não é mais necessária pois a lógica foi incorporada no listener unificado acima.
     customColorInput.addEventListener('input', e => applyFormat('foreColor', e.target.value));
 
     // --- Listeners do Painel Flutuante ---
@@ -2158,11 +3403,19 @@
         if (swatch) {
             const palette = swatch.closest('.palette');
             const color = swatch.dataset.color;
+            let colorInput, hexInput;
+
             if (palette.id === 'multi-palette-bg') {
-                multiSelectToolbar.querySelector('input[data-multi-style="backgroundColor"]').value = color;
+                colorInput = multiSelectToolbar.querySelector('input[data-multi-style="backgroundColor"]');
+                hexInput = multiSelectToolbar.querySelector('input[data-multi-style-hex="backgroundColor"]');
             } else if (palette.id === 'multi-palette-border') {
-                multiSelectToolbar.querySelector('input[data-multi-style="borderColor"]').value = color;
+                colorInput = multiSelectToolbar.querySelector('input[data-multi-style="borderColor"]');
+                hexInput = multiSelectToolbar.querySelector('input[data-multi-style-hex="borderColor"]');
             }
+
+            if(colorInput) colorInput.value = color;
+            if(hexInput) hexInput.value = color; // Atualiza também o campo de texto
+
             return;
         }
 
@@ -2178,7 +3431,7 @@
         else if (action === 'group') handleGroup();
         else if (action === 'ungroup') handleUngroup();
     });
-    
+
     // --- Listeners do Painel de Conexão ---
     connectionToolbar.addEventListener('input', applyConnectionStyles);
     connectionToolbar.addEventListener('click', e => {
@@ -2192,7 +3445,7 @@
 
     // --- Auto-layout Feature ---
     function getNodesForLayout() {
-         const nodeElements = selectedItems.size > 0 
+         const nodeElements = selectedItems.size > 0
             ? Array.from(selectedItems).map(id => document.getElementById(id)).filter(el => el && el.classList.contains('node') && !el.classList.contains('in-group'))
             : Array.from(document.querySelectorAll('.node:not(.in-group)'));
         return nodeElements;
@@ -2214,11 +3467,11 @@
             return;
         }
 
-        let newPositions;
-        switch (type) {
-            case 'hierarchical-tb': newPositions = calculateHierarchicalLayout(nodeElements, 'vertical'); break;
-            case 'hierarchical-lr': newPositions = calculateHierarchicalLayout(nodeElements, 'horizontal'); break;
-        }
+            let newPositions;
+            switch (type) {
+                case 'hierarchical-tb': newPositions = calculateHierarchicalLayout(nodeElements, connections); break;
+                case 'hierarchical-lr': newPositions = calculateHierarchicalLayout(nodeElements, connections); break;
+            }
 
         if (newPositions) {
             newPositions.forEach(pos => {
@@ -2232,141 +3485,171 @@
         }
     }
 
-function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
-        const positions = [];
-        const nodeMap = new Map(nodeElements.map(el => [el.id, {
-            el, children: [], parents: [], level: -1,
-            x: 0, y: 0,
-            width: el.offsetWidth, height: el.offsetHeight
-        }]));
-        const nodeIds = new Set(nodeElements.map(el => el.id));
+    function calculateHierarchicalLayout(nodeElements, connections) {
+        // --- ETAPA 0: CONFIGURAÇÃO ---
+        const verticalGap = 160;
+        const horizontalGap = 40;
 
-        // Etapa 1: Construir o grafo de forma tolerante.
+        // --- ETAPA 1: INICIALIZAÇÃO DOS NÓS ---
+        const nodeMap = new Map(nodeElements.map(el => [el.id, {
+            el,
+            id: el.id,
+            children: [],
+            parents: [],
+            x: 0,
+            y: 0,
+            width: el.offsetWidth,
+            height: el.offsetHeight,
+            level: -1,
+            isHub: false,
+            logicalParent: null,
+            logicalChildren: [],
+            mod: 0
+        }]));
+
+        nodeMap.forEach(node => {
+            const isTransparent = node.el.style.backgroundColor === 'transparent';
+            const hasNoBorder = !node.el.style.borderWidth || parseInt(node.el.style.borderWidth) === 0;
+            if (isTransparent && hasNoBorder) {
+                node.isHub = true;
+            }
+        });
+
+        // --- ETAPA 2: CONSTRUÇÃO DO GRAFO LÓGICO ---
+        const hubs = [];
         connections.forEach(conn => {
-            if (!nodeIds.has(conn.from) || !nodeIds.has(conn.to)) return;
-            const fromNodeEl = document.getElementById(conn.from);
-            const toNodeEl = document.getElementById(conn.to);
             const fromNode = nodeMap.get(conn.from);
             const toNode = nodeMap.get(conn.to);
-            if (!fromNodeEl || !toNodeEl || !fromNode || !toNode) return;
-            let parent, child;
-            if (orientation === 'vertical') {
-                parent = fromNodeEl.offsetTop < toNodeEl.offsetTop ? fromNode : toNode;
-                child = fromNodeEl.offsetTop < toNodeEl.offsetTop ? toNode : fromNode;
-            } else {
-                parent = fromNodeEl.offsetLeft < toNodeEl.offsetLeft ? fromNode : toNode;
-                child = fromNodeEl.offsetLeft < toNodeEl.offsetLeft ? toNode : fromNode;
+            if (fromNode && toNode) {
+                fromNode.children.push(toNode);
+                toNode.parents.push(fromNode);
             }
-            if (!parent.children.includes(child)) parent.children.push(child);
-            if (!child.parents.includes(parent)) child.parents.push(parent);
         });
 
-        // Etapa 2: Nivelamento com BFS.
-        const levels = [];
-        const visited = new Set();
-        let roots = Array.from(nodeMap.values()).filter(n => n.parents.length === 0);
-        if (roots.length === 0 && nodeElements.length > 0) {
-            let pseudoRootEl = nodeElements.reduce((a, b) => {
-                const posA = orientation === 'vertical' ? a.offsetTop : a.offsetLeft;
-                const posB = orientation === 'vertical' ? b.offsetTop : b.offsetLeft;
-                return posA < posB ? a : b;
-            });
-            if(nodeMap.has(pseudoRootEl.id)) roots.push(nodeMap.get(pseudoRootEl.id));
-        }
-        const queue = [];
-        roots.forEach(r => {
-            if(r && !visited.has(r)) { r.level = 0; visited.add(r); queue.push(r); }
-        });
-        let head = 0;
-        while(head < queue.length) {
-            const node = queue[head++];
-            if (!levels[node.level]) levels[node.level] = [];
-            levels[node.level].push(node);
-            node.children.forEach(child => {
-                if (!visited.has(child)) { visited.add(child); child.level = node.level + 1; queue.push(child); }
-            });
-        }
-        for (let i = 0; i < levels.length; i++) { if (!levels[i]) levels[i] = []; }
+        nodeMap.forEach(node => {
+            if (!node.isHub) return;
+            hubs.push(node);
 
-        // Etapa 3: Posicionamento iterativo para criar o efeito pirâmide.
-        const mainAxis = (orientation === 'vertical') ? 'x' : 'y';
-        const crossAxis = (orientation === 'vertical') ? 'y' : 'x';
-        const sizeProp = (orientation === 'vertical') ? 'width' : 'height';
-        const padding = 50;
-        
-        if (levels.length > 0) {
-            const lastLevel = levels[levels.length - 1];
-            lastLevel.forEach((node, index) => { node[mainAxis] = index * 150; });
-        }
-        
-        function getDescendants(node, descs = new Set()) {
-            if (descs.has(node)) return; descs.add(node);
-            for (const child of node.children) getDescendants(child, descs);
-            return descs;
-        }
+            const connectedNodes = [...new Set([...node.parents, ...node.children])];
+            const parentNode = connectedNodes.find(n => n.el.offsetTop < node.el.offsetTop && !n.isHub);
+            const childNodes = connectedNodes.filter(n => n !== parentNode && !n.isHub);
 
-        for (let iter = 0; iter < 10; iter++) {
-            for (let i = levels.length - 2; i >= 0; i--) {
-                levels[i].forEach(p_node => {
-                    if (p_node.children.length > 0) {
-                        const childrenInLayout = p_node.children.filter(c => nodeMap.has(c.el.id) && c.level > p_node.level);
-                        if (childrenInLayout.length > 0) {
-                             const avgChildPos = childrenInLayout.reduce((sum, c) => sum + c[mainAxis], 0) / childrenInLayout.length;
-                             p_node[mainAxis] = avgChildPos;
-                        }
-                    }
+            if (parentNode && childNodes.length > 0) {
+                node.logicalParent = parentNode;
+                node.logicalChildren = childNodes;
+
+                parentNode.children = parentNode.children.filter(c => c.id !== node.id);
+                childNodes.forEach(child => {
+                    child.parents = child.parents.filter(p => p.id !== node.id);
+                    if (!parentNode.children.includes(child)) parentNode.children.push(child);
+                    if (!child.parents.includes(parentNode)) child.parents.push(parentNode);
                 });
             }
-            for (let i = 0; i < levels.length; i++) {
-                const levelNodes = levels[i];
-                levelNodes.sort((a, b) => a[mainAxis] - b[mainAxis]);
-                for (let j = 0; j < levelNodes.length - 1; j++) {
-                    const nodeA = levelNodes[j]; const nodeB = levelNodes[j+1];
-                    const requiredSpace = (nodeA[sizeProp] / 2) + (nodeB[sizeProp] / 2) + padding;
-                    const distance = Math.abs(nodeB[mainAxis] - nodeA[mainAxis]);
-                    if (distance < requiredSpace) {
-                        const shift = requiredSpace - distance;
-                        const subtreeToShift = Array.from(getDescendants(nodeB));
-                        subtreeToShift.forEach(n => { n[mainAxis] += shift; });
-                    }
+        });
+
+        // --- ETAPA 3: ALGORITMO DE LAYOUT (LÓGICA ORIGINAL MANTIDA) ---
+        const roots = Array.from(nodeMap.values()).filter(n => !n.isHub && n.parents.filter(p => !p.isHub).length === 0);
+
+        // ✨ INÍCIO DA MODIFICAÇÃO: Captura a posição do nó âncora antes do layout ✨
+        let primaryRoot = null;
+        let anchorPos = { x: 0, y: 0 };
+        if (roots.length > 0) {
+            primaryRoot = roots.reduce((acc, root) => {
+                if (root.el.offsetTop < acc.el.offsetTop) return root;
+                if (root.el.offsetTop === acc.el.offsetTop && root.el.offsetLeft < acc.el.offsetLeft) return root;
+                return acc;
+            }, roots[0]);
+            anchorPos = { x: primaryRoot.el.offsetLeft, y: primaryRoot.el.offsetTop };
+        }
+        // ✨ FIM DA MODIFICAÇÃO ✨
+
+        // Mantendo seu algoritmo de layout original intacto.
+        function firstWalk(node) {
+            node.children.forEach(child => {
+                if (child.isHub) return;
+                firstWalk(child);
+            });
+            apportion(node);
+            if (node.children.length > 0) {
+                centerParent(node);
+            }
+        }
+        function apportion(node) {
+            const children = node.children.filter(c => !c.isHub);
+            if (children.length > 0) {
+                let nextX = 0;
+                for(const child of children) {
+                    child.x = nextX;
+                    child.mod = nextX;
+                    nextX += child.width + horizontalGap;
                 }
             }
         }
-        
-        const allPositionedNodes = Array.from(nodeMap.values()).filter(n => n.level !== -1);
-        const crossAxisSpacing = (orientation === 'vertical') ? 150 : 250;
-        allPositionedNodes.forEach(node => {
-            node[crossAxis] = node.level * crossAxisSpacing;
-        });
-
-        // --- ETAPA 4 (CORRIGIDA) ---
-        // Centralização final na página, agora funcionando para ambas as orientações.
-        if (allPositionedNodes.length > 0) {
-            // Alinhamento no eixo principal (Ex: X para vertical) - Centralizado na página
-            const newMinMain = Math.min(...allPositionedNodes.map(n => n[mainAxis]));
-            const newMaxMain = Math.max(...allPositionedNodes.map(n => n[mainAxis] + n[sizeProp]));
-            const pageMainSize = (orientation === 'vertical') ? parseFloat(a4PageGuideRect.getAttribute('width')) : parseFloat(a4PageGuideRect.getAttribute('height'));
-            const pageMainCenter = pageMainSize / 2;
-            const newDiagramCenterMain = newMinMain + (newMaxMain - newMinMain) / 2;
-            const finalMainOffset = pageMainCenter - newDiagramCenterMain;
-
-            // Alinhamento no eixo transversal (Ex: Y para vertical) - Margem do topo/esquerda
-            const desiredCrossMargin = 100;
-            const newMinCross = Math.min(...allPositionedNodes.map(n => n[crossAxis]));
-            const finalCrossOffset = desiredCrossMargin - newMinCross;
-            
-            allPositionedNodes.forEach(node => {
-                node[mainAxis] += finalMainOffset;
-                node[crossAxis] += finalCrossOffset;
-            });
+        function centerParent(node) {
+            const children = node.children.filter(c => !c.isHub);
+            if (children.length > 0) {
+                const firstChild = children[0];
+                const lastChild = children[children.length - 1];
+                const childrenWidth = (lastChild.x + lastChild.width) - firstChild.x;
+                node.x = firstChild.x + (childrenWidth / 2) - (node.width / 2);
+            }
+        }
+        function secondWalk(node, modifier, level) {
+            if (node.isHub) return;
+            node.x += modifier;
+            node.y = level * verticalGap;
+            for (const child of node.children) {
+                secondWalk(child, modifier, level + 1);
+            }
         }
 
-        // Etapa 5: Retornar as posições finais.
-        allPositionedNodes.forEach(node => {
-            positions.push({ el: node.el, x: node.x, y: node.y });
+        roots.forEach(root => {
+            firstWalk(root);
+            secondWalk(root, 0, 0);
         });
 
-        return positions;
+        // --- ETAPA 4: POSICIONAMENTO FINAL DOS HUBS ---
+        hubs.forEach(hub => {
+            const parent = hub.logicalParent;
+            const children = hub.logicalChildren;
+            if (parent && children.length > 0) {
+                const minChildX = Math.min(...children.map(c => c.x));
+                const maxChildX = Math.max(...children.map(c => c.x + c.width));
+                const childrenCenterX = minChildX + (maxChildX - minChildX) / 2;
+                hub.x = childrenCenterX - (hub.width / 2);
+                const parentBottom = parent.y + parent.height;
+                const childrenTop = children[0].y;
+                const space = childrenTop - parentBottom;
+                hub.y = parentBottom + (space / 2) - (hub.height / 2);
+            }
+        });
+
+        // --- ETAPA 5: MONTAGEM DO RESULTADO FINAL (LÓGICA DE POSICIONAMENTO ALTERADA) ---
+        const finalPositions = [];
+        let offsetX = 0;
+        let offsetY = 0;
+
+        // Se um nó âncora foi encontrado, calcula o deslocamento necessário.
+        if (primaryRoot) {
+            // A diferença entre a posição original e a calculada é o quanto precisamos mover a árvore.
+            offsetX = anchorPos.x - primaryRoot.x;
+            offsetY = anchorPos.y - primaryRoot.y;
+        } else if (nodeElements.length > 0) {
+            // Fallback caso não haja raiz (ex: seleção circular), ancora no primeiro elemento.
+            const firstNode = nodeMap.get(nodeElements[0].id);
+            if (firstNode) {
+                const fallbackAnchorPos = { x: firstNode.el.offsetLeft, y: firstNode.el.offsetTop };
+                offsetX = fallbackAnchorPos.x - firstNode.x;
+                offsetY = fallbackAnchorPos.y - firstNode.y;
+            }
+        }
+
+        nodeMap.forEach(node => {
+            // Aplica o deslocamento calculado a todos os nós para reposicionar a árvore.
+            finalPositions.push({ el: node.el, x: node.x + offsetX, y: node.y + offsetY });
+        });
+
+        return finalPositions;
     }
 
 
@@ -2382,10 +3665,10 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
             x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + el.offsetHeight / 2,
             vx: 0, vy: 0
         }));
-        
+
         const nodeMap = new Map(nodes.map(n => [n.id, n]));
         const relevantConnections = connections.filter(c => nodeMap.has(c.from) && nodeMap.has(c.to));
-        
+
         const repulsionStrength = 20000, attractionStrength = 0.04, idealDistance = 220, damping = 0.95;
         let iterations = 150;
 
@@ -2396,7 +3679,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                 layoutMenu.querySelector('[data-layout="force"]').innerHTML = '✨ Força-Dirigida';
                 const finalChanges = initialPositions.map(p => ({ ...p, newLeft: document.getElementById(p.nodeId).style.left, newTop: document.getElementById(p.nodeId).style.top })).filter(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop);
                 if (finalChanges.length > 0) recordAction({ type: 'moveNodes', changes: finalChanges });
-                
+
                 fitToContent();
 
                 return;
@@ -2429,7 +3712,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                     nodeB.vx -= fx; nodeB.vy -= fy;
                 }
             }
-            
+
             for (const node of nodes) {
                 node.vx *= damping; node.vy *= damping;
                 node.x += node.vx; node.y += node.vy;
@@ -2450,25 +3733,38 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
         }
     });
 
-    // --- Undo/Redo Handlers ---
     function handleUndo() {
         if (isLayoutRunning || undoStack.length === 0) return;
         const action = undoStack.pop();
         let needsRedraw = false;
         switch (action.type) {
+            // ... (todos os outros cases permanecem iguais)
             case 'createNode': document.getElementById(action.nodeId || action.nodeData.id)?.remove(); connections = connections.filter(c => c.from !== (action.nodeId || action.nodeData.id) && c.to !== (action.nodeId || action.nodeData.id)); needsRedraw = true; break;
-            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); if (contentDiv) { contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; } const img = node.querySelector('img.node-image-content'); if (img && nodeData.imageStyle) { img.style.cssText = nodeData.imageStyle; } updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break;
+            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); if (contentDiv) { contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; } node.style.alignItems = nodeData.alignItems || 'center'; const img = node.querySelector('img.node-image-content'); if (img && nodeData.imageStyle) { img.style.cssText = nodeData.imageStyle; } updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break;
             case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break;
-            case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.oldWidth; nResize.style.height = action.oldHeight; } needsRedraw = true; break;
+            case 'resizeNode':
+                const nResizeUndo = document.getElementById(action.nodeId);
+                if (nResizeUndo) { Object.assign(nResizeUndo.style, action.oldState); }
+                needsRedraw = true;
+                break;
             case 'createConnection': connections.pop(); needsRedraw = true; break;
             case 'deleteConnections': connections.push(...action.deletedConns); needsRedraw = true; break;
             case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.oldContent; break;
-            case 'pasteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); connections = connections.filter(c => c.from !== nData.id && c.to !== nData.id); }); needsRedraw = true; break;
+            case 'pasteNodes':
+                if (action.connectionsData) {
+                    const pastedConnSet = new Set(action.connectionsData.map(c => JSON.stringify(c)));
+                    connections = connections.filter(c => !pastedConnSet.has(JSON.stringify(c)));
+                }
+                action.nodesData.forEach(nData => {
+                    document.getElementById(nData.id)?.remove();
+                });
+                needsRedraw = true;
+                break;
             case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.oldValue); } }); needsRedraw = true; break;
             case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', change.oldStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', change.oldStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', parseInt(change.oldStyles.borderWidth) || 0); applyStyleToSingleNode(node, 'shape', change.oldStyles.shape); } }); needsRedraw = true; break;
             case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = change.oldStyles.color; conn.width = change.oldStyles.width; } }); needsRedraw = true; break;
             case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.oldValue; } }); break;
-            
+
             case 'group':
                 const groupToUndo = document.getElementById(action.groupId);
                 if (groupToUndo) {
@@ -2477,7 +3773,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                         const item = document.getElementById(data.id);
                         if(item) itemsToRestore.push(item);
                     });
-                    
+
                     itemsToRestore.forEach(item => {
                         const oldData = action.groupedItemsData.find(d => d.id === item.id);
                         container.appendChild(item);
@@ -2499,10 +3795,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                     const group = document.createElement('div');
                     group.id = data.groupData.id;
                     group.className = 'group-container';
-                    group.style.left = data.groupData.left;
-                    group.style.top = data.groupData.top;
-                    group.style.width = data.groupData.width;
-                    group.style.height = data.groupData.height;
+                    Object.assign(group.style, data.groupData);
                     container.appendChild(group);
 
                     data.childrenData.forEach(childData => {
@@ -2521,7 +3814,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                 action.ungroupedData.forEach(data => selectedItems.add(data.groupData.id));
                 needsRedraw = true;
                 break;
-                
+
             case 'changeImageNodeStyles':
                 const nodeToUndo = document.getElementById(action.nodeId);
                 if (nodeToUndo) {
@@ -2529,6 +3822,38 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                     const img = nodeToUndo.querySelector('img.node-image-content');
                     if (img) img.style.cssText = action.oldImageStyles;
                 }
+                break;
+            case 'pasteFormatting':
+                action.changes.forEach(change => {
+                    const node = document.getElementById(change.nodeId);
+                    if (node) {
+                        const oldPosLeft = node.style.left;
+                        const oldPosTop = node.style.top;
+                        node.style.cssText = change.oldInlineStyle;
+                        node.className = change.oldClassName;
+                        node.style.left = oldPosLeft;
+                        node.style.top = oldPosTop;
+                        const image = node.querySelector('img.node-image-content');
+                        if (image && change.oldImageStyle) {
+                            image.style.cssText = change.oldImageStyle;
+                        }
+                        updateNodeVisuals(node);
+                    }
+                });
+                needsRedraw = true;
+                break;
+
+            // ALTERADO: Lógica de desfazer para a colagem de formatação
+            case 'pasteTextFormatting':
+                action.changes.forEach(change => {
+                    const node = document.getElementById(change.nodeId);
+                    if (node && node.querySelector('.content')) {
+                        const contentDiv = node.querySelector('.content');
+                        const oldState = change.oldState;
+                        contentDiv.innerHTML = oldState.innerHTML;
+                        contentDiv.style.lineHeight = oldState.lineHeight;
+                    }
+                });
                 break;
         }
         recordAction(action, true, false);
@@ -2541,10 +3866,41 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
         const action = redoStack.pop();
         let needsRedraw = false;
         switch (action.type) {
-            case 'createNode': case 'pasteNodes': const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData; nodesToCreate.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); if (contentDiv) { contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; } const img = node.querySelector('img.node-image-content'); if (img && nodeData.imageStyle) { img.style.cssText = nodeData.imageStyle; } updateNodeVisuals(node); }); needsRedraw = true; break;
+            // ... (todos os outros cases permanecem iguais)
+            case 'createNode': case 'pasteNodes':
+                const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData;
+                nodesToCreate.forEach(nodeData => {
+                    const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true });
+                    node.className = 'node ' + nodeData.className;
+                    node.style.cssText = nodeData.inlineStyle;
+                    node.style.left = nodeData.left;
+                    node.style.top = nodeData.top;
+                    node.style.width = nodeData.width;
+                    node.style.height = nodeData.height;
+                    const contentDiv = node.querySelector('.content');
+                    if (contentDiv) {
+                        contentDiv.style.textAlign = nodeData.contentTextAlign;
+                        contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
+                    }
+                    node.style.alignItems = nodeData.alignItems || 'center';
+                    const img = node.querySelector('img.node-image-content');
+                    if (img && nodeData.imageStyle) {
+                        img.style.cssText = nodeData.imageStyle;
+                    }
+                    updateNodeVisuals(node);
+                });
+                if (action.type === 'pasteNodes' && action.connectionsData) {
+                    connections.push(...action.connectionsData);
+                }
+                needsRedraw = true;
+                break;
             case 'deleteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); }); const nodesToFilter = new Set(action.nodesData.map(nd => nd.id)); connections = connections.filter(c => !nodesToFilter.has(c.from) && !nodesToFilter.has(c.to)); selectedItems.clear(); needsRedraw = true; break;
             case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.newLeft; n.style.top = c.newTop; } }); needsRedraw = true; break;
-            case 'resizeNode': const nResize = document.getElementById(action.nodeId); if(nResize) { nResize.style.width = action.newWidth; nResize.style.height = action.newHeight; } needsRedraw = true; break;
+            case 'resizeNode':
+                const nResizeRedo = document.getElementById(action.nodeId);
+                if (nResizeRedo) { Object.assign(nResizeRedo.style, action.newState); }
+                needsRedraw = true;
+                break;
             case 'createConnection': if (action.connectionData) connections.push(action.connectionData); needsRedraw = true; break;
             case 'deleteConnections': const connsToRedoDelete = new Set(action.deletedConns.map(c => JSON.stringify(c))); connections = connections.filter(c => !connsToRedoDelete.has(JSON.stringify(c))); selectedConnections.clear(); needsRedraw = true; break;
             case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.newContent; break;
@@ -2552,7 +3908,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
             case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', action.newStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', action.newStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', action.newStyles.borderWidth); applyStyleToSingleNode(node, 'shape', action.newStyles.shape); } }); needsRedraw = true; break;
             case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = action.newStyles.color; conn.width = action.newStyles.width; } }); needsRedraw = true; break;
             case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.newValue; } }); break;
-            
+
             case 'group':
                 const groupContainer = document.createElement('div');
                 groupContainer.id = action.groupId;
@@ -2583,10 +3939,10 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                     if (groupToRedoUngroup) {
                         const groupAbsPos = getAbsolutePosition(groupToRedoUngroup);
                         const childrenToMove = Array.from(groupToRedoUngroup.children);
-                        
+
                         childrenToMove.forEach(child => {
-                             const oldChildData = data.childrenData.find(c => c.id === child.id);
-                             if (oldChildData) {
+                            const oldChildData = data.childrenData.find(c => c.id === child.id);
+                            if (oldChildData) {
                                 const newLeft = groupAbsPos.x + parseFloat(oldChildData.left);
                                 const newTop = groupAbsPos.y + parseFloat(oldChildData.top);
                                 container.appendChild(child);
@@ -2594,7 +3950,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                                 child.style.top = `${newTop}px`;
                                 if(child.classList.contains('node')) child.classList.remove('in-group');
                                 allUngroupedIds.add(child.id);
-                             }
+                            }
                         });
                         groupToRedoUngroup.remove();
                     }
@@ -2603,7 +3959,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                 allUngroupedIds.forEach(id => selectedItems.add(id));
                 needsRedraw = true;
                 break;
-                
+
             case 'changeImageNodeStyles':
                 const nodeToRedo = document.getElementById(action.nodeId);
                 if (nodeToRedo) {
@@ -2611,6 +3967,38 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
                     const img = nodeToRedo.querySelector('img.node-image-content');
                     if (img) img.style.cssText = action.newImageStyles;
                 }
+                break;
+            case 'pasteFormatting':
+                action.changes.forEach(change => {
+                    const node = document.getElementById(change.nodeId);
+                    if (node) {
+                        const oldPosLeft = node.style.left;
+                        const oldPosTop = node.style.top;
+                        node.style.cssText = action.newFormatting.inlineStyle;
+                        node.className = action.newFormatting.className;
+                        node.style.left = oldPosLeft;
+                        node.style.top = oldPosTop;
+                        const image = node.querySelector('img.node-image-content');
+                        if (image && action.newFormatting.imageStyle) {
+                            image.style.cssText = action.newFormatting.imageStyle;
+                        }
+                        updateNodeVisuals(node);
+                    }
+                });
+                needsRedraw = true;
+                break;
+
+            // ALTERADO: Lógica de refazer para a colagem de formatação
+            case 'pasteTextFormatting':
+                action.changes.forEach(change => {
+                    const node = document.getElementById(change.nodeId);
+                    if (node && node.querySelector('.content')) {
+                        const contentDiv = node.querySelector('.content');
+                        const newState = change.newState;
+                        contentDiv.innerHTML = newState.innerHTML;
+                        contentDiv.style.lineHeight = newState.lineHeight;
+                    }
+                });
                 break;
         }
         recordAction(action, false, true);
@@ -2630,7 +4018,7 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
         root.style.setProperty('--color-group-bg', themeColors.groupBg);
         root.style.setProperty('--color-node-border-editing', themeColors.nodeBorderEditing);
     }
-    
+
     function handleImageUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -2645,10 +4033,109 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
         };
         reader.readAsDataURL(file);
 
-        event.target.value = null; 
+        event.target.value = null;
     }
 
-    function initialize() {
+    // ==========INICIO DO CONTA-GOTAS (EYEDROPPER) ---
+
+    // Pega as referências dos elementos
+    const colorLoupe = document.getElementById('colorLoupe');
+    const loupeCanvas = document.getElementById('loupeCanvas');
+    const loupeContext = loupeCanvas.getContext('2d');
+    const colorPickerModalOverlay = document.getElementById('color-picker-modal-overlay');
+    const modalColorPreview = document.getElementById('modalColorPreview');
+    const modalColorHexCode = document.getElementById('modalColorHexCode');
+
+    function activateEyedropper() {
+        document.body.style.cursor = 'wait';
+
+        html2canvas(canvasEl, { useCORS: true, logging: false, scrollX: -window.scrollX, scrollY: -window.scrollY, windowWidth: document.documentElement.offsetWidth, windowHeight: document.documentElement.offsetHeight })
+        .then(canvas => {
+            document.body.style.cursor = 'crosshair';
+            colorLoupe.style.display = 'block';
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+
+            const onMouseMove = (event) => {
+                const loupeSize = colorLoupe.offsetWidth;
+                const magnification = 4;
+                const canvasRect = canvasEl.getBoundingClientRect();
+                const mouseX = event.clientX;
+                const mouseY = event.clientY;
+
+                colorLoupe.style.left = `${mouseX - loupeSize / 2}px`;
+                colorLoupe.style.top = `${mouseY - loupeSize / 2}px`;
+
+                const sourceX = mouseX - canvasRect.left;
+                const sourceY = mouseY - canvasRect.top;
+                const sourceSize = loupeSize / magnification;
+
+                loupeContext.imageSmoothingEnabled = false;
+                loupeContext.clearRect(0, 0, loupeCanvas.width, loupeCanvas.height);
+                loupeContext.drawImage(canvas, sourceX - (sourceSize / 2), sourceY - (sourceSize / 2), sourceSize, sourceSize, 0, 0, loupeCanvas.width, loupeCanvas.height);
+            };
+
+            const onCanvasClick = (event) => {
+                event.stopPropagation();
+                event.preventDefault();
+
+                const canvasRect = canvasEl.getBoundingClientRect();
+                const x = event.clientX - canvasRect.left;
+                const y = event.clientY - canvasRect.top;
+                const pixelData = context.getImageData(x, y, 1, 1).data;
+                const rgbString = `rgb(${pixelData[0]}, ${pixelData[1]}, ${pixelData[2]})`;
+                const hexColor = rgbToHex(rgbString);
+
+                // --- LÓGICA ATUALIZADA ---
+                // Em vez de atualizar os elementos antigos, agora exibimos o modal
+                modalColorPreview.style.backgroundColor = hexColor;
+                modalColorHexCode.textContent = hexColor;
+                colorPickerModalOverlay.style.display = 'flex'; // Mostra o modal
+
+                // --- LIMPEZA ---
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('click', onCanvasClick, { capture: true });
+                document.body.style.cursor = 'default';
+                colorLoupe.style.display = 'none';
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('click', onCanvasClick, { capture: true });
+
+        }).catch(err => {
+            console.error("Erro ao ativar o conta-gotas:", err);
+            document.body.style.cursor = 'default';
+        });
+    }
+
+    // Conecta a função ao botão do conta-gotas
+    eyedropperBtn.addEventListener('click', activateEyedropper);
+
+    // --- LÓGICA PARA O NOVO MODAL DE COR ---
+    colorPickerModalOverlay.addEventListener('click', (event) => {
+        // Fecha o modal se o clique for no fundo (overlay) e não na caixa de conteúdo
+        if (event.target === colorPickerModalOverlay) {
+            colorPickerModalOverlay.style.display = 'none';
+        }
+    });
+
+    modalColorHexCode.addEventListener('click', () => {
+        const hexValue = modalColorHexCode.textContent;
+        navigator.clipboard.writeText(hexValue).then(() => {
+            const originalText = modalColorHexCode.textContent;
+            modalColorHexCode.textContent = 'Copiado!';
+            modalColorHexCode.style.cursor = 'default';
+            setTimeout(() => {
+                modalColorHexCode.textContent = originalText;
+                modalColorHexCode.style.cursor = 'pointer';
+            }, 1500);
+        }).catch(err => {
+            console.error('Falha ao copiar o texto: ', err);
+        });
+    });
+
+    //=======Fim conta gotas========
+
+function initialize() {
         applyTheme();
         updateUndoRedoButtons();
         isA4ModeActive = true;
@@ -2662,11 +4149,35 @@ function calculateHierarchicalLayout(nodeElements, orientation = 'vertical') {
         makeDraggable(multiSelectToolbar, document.getElementById('multi-select-toolbar-header'));
         makeDraggable(groupContextMenu, document.getElementById('group-context-header'));
         makeDraggable(connectionToolbar, document.getElementById('connection-toolbar-header'));
-        
+
         addImageBtn.addEventListener('click', () => imageUploadInput.click());
         imageUploadInput.addEventListener('change', handleImageUpload);
+
+        // Listeners para os botões do menu "Editar"
+        document.getElementById('copyFormattingBtn').addEventListener('click', handleCopyFormatting);
+        document.getElementById('pasteFormattingBtn').addEventListener('click', handlePasteFormatting);
+        document.getElementById('copyTextFormattingBtn').addEventListener('click', handleCopyTextFormatting);
+        document.getElementById('pasteTextFormattingBtn').addEventListener('click', handlePasteTextFormatting);
+
+        // Adiciona a funcionalidade de fechar o menu "Arquivo" ao clicar em um item.
+        const fileMenuItems = [
+            document.getElementById('saveDiagram'),
+            document.getElementById('printToPDFBtn'),
+            document.querySelector('label[for="loadDiagramInput"]') // Seleciona a label "Carregar"
+        ];
+
+        fileMenuItems.forEach(item => {
+            if (item) {
+                item.addEventListener('click', () => {
+                    const panel = item.closest('.dropdown-panel');
+                    if (panel) {
+                        panel.classList.add('hidden');
+                    }
+                });
+            }
+        });
     }
-    initialize(); 
+    initialize();
   </script>
 </body>
 </html>
