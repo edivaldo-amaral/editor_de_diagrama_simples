@@ -237,10 +237,33 @@
       svg#lines, #svg-container { width: 100% !important; height: 100% !important; overflow: hidden !important; }
     }
 
+    /* --- ESTILO PARA A BARRA DE INFORMAÇÕES DO ARQUIVO --- */
+    #file-info-bar {
+    display: none; /* Começa escondida */
+    position: sticky;
+    top: 0;
+    width: 100%;
+    background-color: #1f2937; /* Cor escura para contraste */
+    color: #d1d5db; /* Cor de texto cinza claro */
+    padding: 4px 15px;
+    text-align: center;
+    font-size: 0.8rem;
+    font-family: monospace;
+    z-index: 1025; /* Garante que fique acima do menu principal */
+    border-bottom: 1px solid #4b5563;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    }
 
   </style>
 </head>
-<body>
+<body style="margin: 0; padding: 0; overflow: hidden; background-color: #f9fafb; font-family: sans-serif; -webkit-user-select: none; user-select: none;">
+  
+  <div id="file-info-bar">
+    <span id="file-info-text"></span>
+  </div>
+  
   <div id="main-content-area" style="width: 100%; height: 100vh; display: flex; flex-direction: column;">
     <div class="flex justify-center w-full">
       <div id="top-buttons-container" class="flex items-center flex-wrap p-2.5 bg-gray-100 shadow-md space-x-2">
@@ -270,10 +293,16 @@
             <button type="button" class="menu-trigger-button inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">Arquivo<svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg></button>
             <div class="dropdown-panel hidden origin-top-left absolute left-0 mt-2 w-auto min-w-[160px] rounded-md shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-[1015]">
                 <div class="py-1">
-                    <button id="saveDiagram" class="menu-item-button" title="Salvar Diagrama">💾 Salvar</button>
-                    <label for="loadDiagramInput" class="menu-item-button" title="Carregar Diagrama">📂 Carregar</label>
-                    <input type="file" id="loadDiagramInput" accept=".json,application/json" style="display: none;">
+                    <button id="saveDiagram" class="menu-item-button" title="Salvar alterações no arquivo atual (Ctrl+S)">💾 Salvar</button>
+                    <button id="saveAsDiagram" class="menu-item-button" title="Salvar diagrama em um novo arquivo">💾 Salvar Como...</button>
+                    
+                    <label for="loadDiagramTrigger" id="loadDiagramLabel" class="menu-item-button" title="Carregar Diagrama">📂 Carregar</label>
+                    
+                    <label for="importDiagramInput" class="menu-item-button" title="Importar JSON para o diagrama atual">📥 Importar</label>
+                    <input type="file" id="importDiagramInput" accept=".json,application/json" style="display: none;">
+                    
                     <button id="printToPDFBtn" title="Imprimir para PDF" class="menu-item-button">🖨️ Imprimir PDF</button>
+                    <button id="exportToPNGBtn" class="menu-item-button">🖼️ Exportar PNG</button>
                 </div>
             </div>
         </div>
@@ -603,9 +632,27 @@
     </div>
   </div>
 
+    <div id="confirmation-modal-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; z-index: 10000;">
+        <div id="confirmation-modal-box" style="background: white; padding: 1.5rem 2rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; max-width: 90%; width: 450px;">
+        <h3 id="confirmation-modal-title" style="margin-top: 0; margin-bottom: 1rem; color: #1f2937;">Deseja salvar as alterações?</h3>
+        <p id="confirmation-modal-message" style="margin-bottom: 2rem; color: #4b5563; font-size: 0.9rem;">Você tem alterações não salvas no diagrama atual. O que você gostaria de fazer?</p>
+        <div id="confirmation-modal-buttons" style="display: flex; justify-content: space-between; gap: 0.75rem;">
+            <button id="confirm-cancel-btn" style="flex: 1; padding: 0.6rem; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 0.375rem; cursor: pointer; font-weight: 600;">Cancelar</button>
+            <button id="confirm-discard-btn" style="flex: 1; padding: 0.6rem; border: none; background: #ef4444; color: white; border-radius: 0.375rem; cursor: pointer; font-weight: 600;">Descartar</button>
+            <button id="confirm-save-btn" style="flex: 1; padding: 0.6rem; border: none; background: #2563eb; color: white; border-radius: 0.375rem; cursor: pointer; font-weight: 600;">Salvar e Continuar</button>
+        </div>
+        </div>
+    </div>
+    <script>
+        // ... seu script
+    </script>
+    </body>
+  
   <script>
     // --- Global Elements ---
     const canvasEl = document.getElementById('canvas');
+    const fileInfoBar = document.getElementById('file-info-bar');
+    const fileInfoText = document.getElementById('file-info-text');
     const panZoomContainer = document.getElementById('panZoomContainer');
     const container = document.getElementById('container');
     const svg = document.getElementById('lines');
@@ -642,6 +689,12 @@
     const modalContent = document.getElementById('modal-content');
     const modalCloseBtn = document.getElementById('modal-close-btn');
 
+    // --- Elemento Medidor de Texto  ---
+    const textMeasurer = document.createElement('span');
+    textMeasurer.style.position = 'absolute';
+    textMeasurer.style.visibility = 'hidden';
+    textMeasurer.style.whiteSpace = 'nowrap'; // Impede que o próprio medidor quebre a linha
+    document.body.appendChild(textMeasurer);
 
     const addImageBtn = document.getElementById('addImageBtn');
     const imageUploadInput = document.getElementById('imageUploadInput');
@@ -714,6 +767,8 @@
     const SNAP_THRESHOLD = 5; // Tolerância em pixels para o alinhamento
 
     // --- State Variables ---
+    let fileHandle = null;
+    let isDirty = false;
     let isA4ModeActive = true;
     let viewport = { scale: 1.0, panX: 0, panY: 0 };
     let isPanning = false;
@@ -739,6 +794,8 @@
     let globalNodeShape = 'rectangle';
     let originalViewportBeforePrint = null;
     let isLayoutRunning = false;
+    let keyMoveUndoTimer = null;
+    let initialKeyMovePositions = null;
 
     // --- Utility Functions ---
     function rgbToHex(rgb) {
@@ -769,6 +826,31 @@
     modalOverlay.addEventListener('click', (e) => {
         if (e.target === modalOverlay) hideModal();
     });
+    
+    // --- NOVA FUNÇÃO PARA O MODAL DE CONFIRMAÇÃO ---
+    function showConfirmationModal() {
+        return new Promise((resolve) => {
+            const overlay = document.getElementById('confirmation-modal-overlay');
+            const saveBtn = document.getElementById('confirm-save-btn');
+            const discardBtn = document.getElementById('confirm-discard-btn');
+            const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+            overlay.style.display = 'flex';
+
+            const close = (choice) => {
+                overlay.style.display = 'none';
+                // Remove os listeners para não acumularem
+                saveBtn.onclick = null;
+                discardBtn.onclick = null;
+                cancelBtn.onclick = null;
+                resolve(choice);
+            };
+
+            saveBtn.onclick = () => close('save');
+            discardBtn.onclick = () => close('discard');
+            cancelBtn.onclick = () => close('cancel');
+        });
+    }
 
     // --- Menu Dropdown Logic ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -780,7 +862,19 @@
 
     // --- Undo/Redo & State Management ---
     function updateUndoRedoButtons() { undoBtn.disabled = undoStack.length === 0; redoBtn.disabled = redoStack.length === 0; }
-    function recordAction(action, fromUndo = false, fromRedo = false) { if (!fromUndo && !fromRedo) { undoStack.push(action); redoStack = []; } else if (fromUndo) { redoStack.push(action); } else if (fromRedo) { undoStack.push(action); } updateUndoRedoButtons(); }
+
+    function recordAction(action, fromUndo = false, fromRedo = false) {
+        if (!fromUndo && !fromRedo) {
+            undoStack.push(action);
+            redoStack = [];
+            isDirty = true; // <-- ADICIONE ESTA LINHA
+        } else if (fromUndo) {
+            redoStack.push(action);
+        } else if (fromRedo) {
+            undoStack.push(action);
+        }
+        updateUndoRedoButtons();
+    }
 
     function getNodeDataForUndo(nodeEl) {
         const nodeData = {
@@ -841,18 +935,14 @@
 
         let nodeId = id;
         let isNewNodeFromUser = false;
+        // Lógica de ID simplificada e corrigida.
         if (!nodeId) {
             isNewNodeFromUser = !isUndoRedo;
-            let maxId = -1;
-            document.querySelectorAll('.node[id^="node-"]').forEach(n => {
-                const num = parseInt(n.id.split('-')[1]);
-                if (!isNaN(num) && num > maxId) maxId = num;
-            });
-            nodeCounter = maxId + 1;
             nodeId = 'node-' + nodeCounter;
-        } else {
-            const numId = parseInt(id.split('-')[1]);
-            if (!isNaN(numId) && numId >= nodeCounter) nodeCounter = numId + 1;
+            // O contador agora só é incrementado aqui, ao criar um nó genuinamente novo.
+            if (!isUndoRedo) {
+                nodeCounter++;
+            }
         }
 
         const node = document.createElement('div');
@@ -899,6 +989,7 @@
         updateNodeVisuals(node);
 
         if (recordUndo && isNewNodeFromUser) {
+            // Ao criar um novo nó, usamos o ID que acabamos de gerar.
             recordAction({ type: 'createNode', nodeData: getNodeDataForUndo(node) });
         }
 
@@ -1893,311 +1984,7 @@
         };
     }
 
-    function handlePaste() {
-        if (!appClipboard.items || appClipboard.items.length === 0) return;
 
-        const canvasRect = canvasEl.getBoundingClientRect();
-        const isMouseOutside = globalScreenMouse.x < canvasRect.left || globalScreenMouse.x > canvasRect.right || globalScreenMouse.y < canvasRect.top || globalScreenMouse.y > canvasRect.bottom || (globalScreenMouse.x === 0 && globalScreenMouse.y === 0);
-        const worldMousePaste = screenToWorld(globalScreenMouse.x, globalScreenMouse.y);
-        const basePastePos = isMouseOutside ? { x: appClipboard.anchor.left + 20, y: appClipboard.anchor.top + 20 } : { x: worldMousePaste.x, y: worldMousePaste.y };
-
-        clearSelection();
-
-        const idMap = new Map();
-        const pastedNodesData = [];
-
-        // 1. Criar os novos nós e mapear os IDs antigos para os novos
-        appClipboard.items.forEach(itemData => {
-            const newPos = { x: basePastePos.x + itemData.relativeLeft, y: basePastePos.y + itemData.relativeTop };
-            const newNode = createNode(itemData.type === 'text' ? itemData.contentHTML : null, newPos.x, newPos.y, null, { recordUndo: false, type: itemData.type, imageUrl: itemData.imageUrl });
-
-            Object.assign(newNode.style, { cssText: itemData.inlineStyle, width: `${itemData.width}px`, height: `${itemData.height}px`, left: `${newPos.x}px`, top: `${newPos.y}px` });
-            newNode.className = itemData.className;
-            if (itemData.type === 'image' && itemData.imageStyle) newNode.querySelector('img.node-image-content').style.cssText = itemData.imageStyle;
-            if (itemData.type === 'text') Object.assign(newNode.querySelector('.content').style, { textAlign: itemData.contentTextAlign || '', lineHeight: itemData.contentLineHeight || '' });
-
-            newNode.classList.remove('selected', 'editing', 'style-target');
-            updateNodeVisuals(newNode);
-
-            selectedItems.add(newNode.id);
-            idMap.set(itemData.originalId, newNode.id); // Mapeia o ID antigo (da cópia) para o novo ID
-            pastedNodesData.push(getNodeDataForUndo(newNode));
-        });
-
-        // 2. Criar as novas conexões usando o mapa de IDs
-        const pastedConnectionsData = [];
-        if (appClipboard.connections) {
-            appClipboard.connections.forEach(connData => {
-                const newFromId = idMap.get(connData.from);
-                const newToId = idMap.get(connData.to);
-
-                if (newFromId && newToId) {
-                    const newConnection = { ...connData, from: newFromId, to: newToId };
-                    connections.push(newConnection);
-                    pastedConnectionsData.push(newConnection);
-                }
-            });
-        }
-
-        // 3. Gravar uma única ação de "colar" para o histórico de undo/redo
-        if (pastedNodesData.length > 0) {
-            recordAction({ type: 'pasteNodes', nodesData: pastedNodesData, connectionsData: pastedConnectionsData });
-        }
-
-        updateSelectionVisuals();
-        drawLines();
-        if (appClipboard.type === 'cut') {
-            appClipboard = { type: null, items: [], connections: [], anchor: { left: 0, top: 0 } };
-        }
-    }
-
-    function handleUndo() {
-        if (isLayoutRunning || undoStack.length === 0) return;
-        const action = undoStack.pop();
-        let needsRedraw = false;
-        switch (action.type) {
-            case 'createNode': document.getElementById(action.nodeId || action.nodeData.id)?.remove(); connections = connections.filter(c => c.from !== (action.nodeId || action.nodeData.id) && c.to !== (action.nodeId || action.nodeData.id)); needsRedraw = true; break;
-            case 'deleteNodes': action.nodesData.forEach(nodeData => { const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true }); node.className = 'node ' + nodeData.className; node.style.cssText = nodeData.inlineStyle; node.style.left = nodeData.left; node.style.top = nodeData.top; node.style.width = nodeData.width; node.style.height = nodeData.height; const contentDiv = node.querySelector('.content'); if (contentDiv) { contentDiv.style.textAlign = nodeData.contentTextAlign; contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal'; } node.style.alignItems = nodeData.alignItems || 'center'; const img = node.querySelector('img.node-image-content'); if (img && nodeData.imageStyle) { img.style.cssText = nodeData.imageStyle; } updateNodeVisuals(node); }); action.connectionsData.forEach(cData => { if (!connections.some(c => c.from === cData.from && c.to === c.to)) { connections.push(cData); } }); needsRedraw = true; break;
-            case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.oldLeft; n.style.top = c.oldTop; } }); needsRedraw = true; break;
-            case 'resizeNode':
-                const nResizeUndo = document.getElementById(action.nodeId);
-                if (nResizeUndo) { Object.assign(nResizeUndo.style, action.oldState); }
-                needsRedraw = true;
-                break;
-            case 'createConnection': connections.pop(); needsRedraw = true; break;
-            case 'deleteConnections': connections.push(...action.deletedConns); needsRedraw = true; break;
-            case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.oldContent; break;
-            case 'pasteNodes':
-                // Remove as conexões que foram coladas
-                if (action.connectionsData) {
-                    const pastedConnSet = new Set(action.connectionsData.map(c => JSON.stringify(c)));
-                    connections = connections.filter(c => !pastedConnSet.has(JSON.stringify(c)));
-                }
-                // Remove os nós que foram colados
-                action.nodesData.forEach(nData => {
-                    document.getElementById(nData.id)?.remove();
-                });
-                needsRedraw = true;
-                break;
-            case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.oldValue); } }); needsRedraw = true; break;
-            case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', change.oldStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', change.oldStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', parseInt(change.oldStyles.borderWidth) || 0); applyStyleToSingleNode(node, 'shape', change.oldStyles.shape); } }); needsRedraw = true; break;
-            case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = change.oldStyles.color; conn.width = change.oldStyles.width; } }); needsRedraw = true; break;
-            case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.oldValue; } }); break;
-
-            case 'group':
-                const groupToUndo = document.getElementById(action.groupId);
-                if (groupToUndo) {
-                    const itemsToRestore = [];
-                    action.groupedItemsData.forEach(data => {
-                        const item = document.getElementById(data.id);
-                        if(item) itemsToRestore.push(item);
-                    });
-
-                    itemsToRestore.forEach(item => {
-                        const oldData = action.groupedItemsData.find(d => d.id === item.id);
-                        container.appendChild(item);
-                        item.style.left = oldData.left;
-                        item.style.top = oldData.top;
-                        if (item.classList.contains('node')) {
-                            item.classList.remove('in-group');
-                        }
-                    });
-                    groupToUndo.remove();
-                }
-                selectedItems.clear();
-                action.groupedItemsData.forEach(data => selectedItems.add(data.id));
-                needsRedraw = true;
-                break;
-
-            case 'ungroup':
-                action.ungroupedData.forEach(data => {
-                    const group = document.createElement('div');
-                    group.id = data.groupData.id;
-                    group.className = 'group-container';
-                    Object.assign(group.style, data.groupData);
-                    container.appendChild(group);
-
-                    data.childrenData.forEach(childData => {
-                        const child = document.getElementById(childData.id);
-                        if (child) {
-                            group.appendChild(child);
-                            child.style.left = childData.left;
-                            child.style.top = childData.top;
-                            if (child.classList.contains('node')) {
-                                child.classList.add('in-group');
-                            }
-                        }
-                    });
-                });
-                selectedItems.clear();
-                action.ungroupedData.forEach(data => selectedItems.add(data.groupData.id));
-                needsRedraw = true;
-                break;
-
-            case 'changeImageNodeStyles':
-                const nodeToUndo = document.getElementById(action.nodeId);
-                if (nodeToUndo) {
-                    nodeToUndo.style.cssText = action.oldNodeStyles;
-                    const img = nodeToUndo.querySelector('img.node-image-content');
-                    if (img) img.style.cssText = action.oldImageStyles;
-                }
-                break;
-            case 'pasteFormatting':
-                action.changes.forEach(change => {
-                    const node = document.getElementById(change.nodeId);
-                    if (node) {
-                        const oldPosLeft = node.style.left;
-                        const oldPosTop = node.style.top;
-                        node.style.cssText = change.oldInlineStyle;
-                        node.className = change.oldClassName;
-                        node.style.left = oldPosLeft;
-                        node.style.top = oldPosTop;
-                        const image = node.querySelector('img.node-image-content');
-                        if (image && change.oldImageStyle) {
-                            image.style.cssText = change.oldImageStyle;
-                        }
-                        updateNodeVisuals(node);
-                    }
-                });
-                needsRedraw = true;
-                break;
-        }
-        recordAction(action, true, false);
-        if (needsRedraw) drawLines();
-        updateSelectionVisuals();
-    }
-
-    function handleRedo() {
-        if (isLayoutRunning || redoStack.length === 0) return;
-        const action = redoStack.pop();
-        let needsRedraw = false;
-        switch (action.type) {
-            case 'createNode': case 'pasteNodes':
-                const nodesToCreate = action.type === 'createNode' ? [action.nodeData] : action.nodesData;
-                nodesToCreate.forEach(nodeData => {
-                    const node = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, { isUndoRedo: true });
-                    node.className = 'node ' + nodeData.className;
-                    node.style.cssText = nodeData.inlineStyle;
-                    node.style.left = nodeData.left;
-                    node.style.top = nodeData.top;
-                    node.style.width = nodeData.width;
-                    node.style.height = nodeData.height;
-                    const contentDiv = node.querySelector('.content');
-                    if (contentDiv) {
-                        contentDiv.style.textAlign = nodeData.contentTextAlign;
-                        contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
-                    }
-                    node.style.alignItems = nodeData.alignItems || 'center';
-                    const img = node.querySelector('img.node-image-content');
-                    if (img && nodeData.imageStyle) {
-                        img.style.cssText = nodeData.imageStyle;
-                    }
-                    updateNodeVisuals(node);
-                });
-                // Recria as conexões se for uma ação de colar
-                if (action.type === 'pasteNodes' && action.connectionsData) {
-                    connections.push(...action.connectionsData);
-                }
-                needsRedraw = true;
-                break;
-            case 'deleteNodes': action.nodesData.forEach(nData => { document.getElementById(nData.id)?.remove(); }); const nodesToFilter = new Set(action.nodesData.map(nd => nd.id)); connections = connections.filter(c => !nodesToFilter.has(c.from) && !nodesToFilter.has(c.to)); selectedItems.clear(); needsRedraw = true; break;
-            case 'moveNodes': action.changes.forEach(c => { const n = document.getElementById(c.nodeId); if (n) { n.style.left = c.newLeft; n.style.top = c.newTop; } }); needsRedraw = true; break;
-            case 'resizeNode':
-                const nResizeRedo = document.getElementById(action.nodeId);
-                if (nResizeRedo) { Object.assign(nResizeRedo.style, action.newState); }
-                needsRedraw = true;
-                break;
-            case 'createConnection': if (action.connectionData) connections.push(action.connectionData); needsRedraw = true; break;
-            case 'deleteConnections': const connsToRedoDelete = new Set(action.deletedConns.map(c => JSON.stringify(c))); connections = connections.filter(c => !connsToRedoDelete.has(JSON.stringify(c))); selectedConnections.clear(); needsRedraw = true; break;
-            case 'changeContent': const nContent = document.getElementById(action.nodeId); if (nContent) nContent.querySelector('.content').innerHTML = action.newContent; break;
-            case 'changeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, change.style, change.newValue); } }); needsRedraw = true; break;
-            case 'bulkChangeNodeStyles': action.changes.forEach(change => { const node = document.getElementById(change.nodeId); if (node) { applyStyleToSingleNode(node, 'backgroundColor', action.newStyles.backgroundColor); applyStyleToSingleNode(node, 'borderColor', action.newStyles.borderColor); applyStyleToSingleNode(node, 'borderWidth', action.newStyles.borderWidth); applyStyleToSingleNode(node, 'shape', action.newStyles.shape); } }); needsRedraw = true; break;
-            case 'changeConnectionStyles': action.changes.forEach(change => { const conn = connections[change.index]; if (conn) { conn.color = action.newStyles.color; conn.width = action.newStyles.width; } }); needsRedraw = true; break;
-            case 'changeGroupStyles': action.changes.forEach(c => { const g = document.getElementById(c.groupId); if (g) { g.style[c.style] = c.newValue; } }); break;
-
-            case 'group':
-                const groupContainer = document.createElement('div');
-                groupContainer.id = action.groupId;
-                groupContainer.className = 'group-container';
-                Object.assign(groupContainer.style, action.groupRect);
-                container.appendChild(groupContainer);
-                const groupLeft = parseFloat(action.groupRect.left);
-                const groupTop = parseFloat(action.groupRect.top);
-
-                action.groupedItemsData.forEach(data => {
-                    const item = document.getElementById(data.id);
-                    if (item) {
-                        groupContainer.appendChild(item);
-                        item.style.left = `${parseFloat(data.left) - groupLeft}px`;
-                        item.style.top = `${parseFloat(data.top) - groupTop}px`;
-                        if(item.classList.contains('node')) item.classList.add('in-group');
-                    }
-                });
-                selectedItems.clear();
-                selectedItems.add(action.groupId);
-                needsRedraw = true;
-                break;
-
-            case 'ungroup':
-                const allUngroupedIds = new Set();
-                action.ungroupedData.forEach(data => {
-                    const groupToRedoUngroup = document.getElementById(data.groupData.id);
-                    if (groupToRedoUngroup) {
-                        const groupAbsPos = getAbsolutePosition(groupToRedoUngroup);
-                        const childrenToMove = Array.from(groupToRedoUngroup.children);
-
-                        childrenToMove.forEach(child => {
-                             const oldChildData = data.childrenData.find(c => c.id === child.id);
-                             if (oldChildData) {
-                                const newLeft = groupAbsPos.x + parseFloat(oldChildData.left);
-                                const newTop = groupAbsPos.y + parseFloat(oldChildData.top);
-                                container.appendChild(child);
-                                child.style.left = `${newLeft}px`;
-                                child.style.top = `${newTop}px`;
-                                if(child.classList.contains('node')) child.classList.remove('in-group');
-                                allUngroupedIds.add(child.id);
-                             }
-                        });
-                        groupToRedoUngroup.remove();
-                    }
-                });
-                selectedItems.clear();
-                allUngroupedIds.forEach(id => selectedItems.add(id));
-                needsRedraw = true;
-                break;
-
-            case 'changeImageNodeStyles':
-                const nodeToRedo = document.getElementById(action.nodeId);
-                if (nodeToRedo) {
-                    nodeToRedo.style.cssText = action.newNodeStyles;
-                    const img = nodeToRedo.querySelector('img.node-image-content');
-                    if (img) img.style.cssText = action.newImageStyles;
-                }
-                break;
-            case 'pasteFormatting':
-                 action.changes.forEach(change => {
-                    const node = document.getElementById(change.nodeId);
-                    if (node) {
-                        const oldPosLeft = node.style.left;
-                        const oldPosTop = node.style.top;
-                        node.style.cssText = action.newFormatting.inlineStyle;
-                        node.className = action.newFormatting.className;
-                        node.style.left = oldPosLeft;
-                        node.style.top = oldPosTop;
-                        const image = node.querySelector('img.node-image-content');
-                        if (image && action.newFormatting.imageStyle) {
-                            image.style.cssText = action.newFormatting.imageStyle;
-                        }
-                        updateNodeVisuals(node);
-                    }
-                });
-                needsRedraw = true;
-                break;
-        }
-        recordAction(action, false, true);
-        if (needsRedraw) drawLines();
-        updateSelectionVisuals();
-    }
     function handleCut() { handleCopy(); if (appClipboard.items.length > 0) { appClipboard.type = 'cut'; handleDelete(); } }
     function handlePaste() {
         if (!appClipboard.items || appClipboard.items.length === 0) return;
@@ -2500,29 +2287,238 @@
         return recipe;
     }
 
+    // --- Clipboard & Save/Load ---
 
-    function handleLoadDiagram(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
+    // =========================================================================
+    // === INÍCIO DO BLOCO DE CÓDIGO PARA SUBSTITUIÇÃO E ADIÇÃO ================
+    // =========================================================================
+
+    // Função para obter os dados do diagrama a serem salvos
+    function getDiagramDataAsString() {
+        /**
+        * Converte um elemento (nó ou grupo) e seus filhos em um objeto para salvar.
+        * @param {HTMLElement} element O nó ou grupo a ser serializado.
+        * @returns {Object | null}
+        */
+        function serializeItem(element) {
+            if (element.classList.contains('node')) {
+                // Reutiliza a função já existente e funcional para serializar nós.
+                return getNodeDataForUndo(element);
+
+            } else if (element.classList.contains('group-container')) {
+                const groupData = {
+                    type: 'group',
+                    id: element.id,
+                    left: element.style.left,
+                    top: element.style.top,
+                    width: element.style.width,
+                    height: element.style.height,
+                    inlineStyle: element.style.cssText,
+                    children: []
+                };
+                // Salva os filhos diretos do grupo de forma recursiva.
+                Array.from(element.children).forEach(child => {
+                    if (child.classList.contains('node') || child.classList.contains('group-container')) {
+                        groupData.children.push(serializeItem(child));
+                    }
+                });
+                return groupData;
+            }
+            return null;
+        }
+
+        // Pega apenas os itens de nível superior no container principal.
+        const topLevelItems = Array.from(container.children).filter(el =>
+            el.matches('.node:not(.in-group)') || el.classList.contains('group-container')
+        );
+
+        const diagramData = {
+            // A propriedade "nodes" agora é "items" para refletir a nova estrutura.
+            items: topLevelItems.map(serializeItem).filter(Boolean),
+            connections: connections,
+            nodeCounter: nodeCounter,
+            viewport: viewport
+        };
+        return JSON.stringify(diagramData, null, 2);
+    }
+
+    // Função para escrever os dados em um fileHandle
+    async function writeToFile(handle, data) {
+        const writable = await handle.createWritable();
+        await writable.write(data);
+        await writable.close();
+    }
+
+    // NOVA FUNÇÃO: "Salvar Como..."
+    async function handleSaveAsDiagram() {
+        // Verifica se a API está disponível
+        if (!('showSaveFilePicker' in window)) {
+            showModal("Erro: Esta funcionalidade requer um navegador compatível (como Chrome ou Edge) e que a página seja acessada via HTTPS ou um servidor local (localhost). Não funciona abrindo o arquivo HTML diretamente.");
+            return;
+        }
+
+        try {
+            const data = getDiagramDataAsString();
+            const newHandle = await window.showSaveFilePicker({
+                types: [{
+                    description: 'Diagrama JSON',
+                    accept: { 'application/json': ['.json'] },
+                }],
+            });
+            await writeToFile(newHandle, data);
+            fileHandle = newHandle;
+            updateFileInfoBar(fileHandle);
+            showModal("Diagrama salvo com sucesso!");
+            isDirty = false; 
+            return true; 
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                console.error("Erro ao salvar o diagrama:", err);
+                showModal("Não foi possível salvar o diagrama.");
+            }
+        }
+    }
+
+    // FUNÇÃO MODIFICADA: "Salvar"
+    async function handleSaveDiagram() {
+        // Verifica se a API está disponível no navegador e no ambiente (localhost/https)
+        if (!('showSaveFilePicker' in window)) {
+            showModal("Erro: Esta funcionalidade requer um navegador compatível (como Chrome ou Edge) e que a página seja acessada via HTTPS ou um servidor local (localhost). Não funciona abrindo o arquivo HTML diretamente.");
+            return;
+        }
+
+        if (fileHandle) {
             try {
-                const data = JSON.parse(e.target.result);
-                if (!data.nodes || !data.connections) { showModal('Arquivo de diagrama inválido.'); return; }
-                undoStack = []; redoStack = []; updateUndoRedoButtons(); selectedItems.clear(); selectedConnections.clear(); editingNode = null; hideToolbar(); svg.innerHTML = ''; container.innerHTML = ''; connections = []; viewport = data.viewport || { scale: 1.0, panX: 0, panY: 0 };
-                let maxLoadedIdNum = -1;
-                data.nodes.forEach(nodeData => {
+                const data = getDiagramDataAsString();
+                await writeToFile(fileHandle, data);
+                showModal("Alterações salvas!");
+                isDirty = false;
+                return true;
+            } catch (err) {
+                if (err.name === 'NotFoundError') {
+                    showModal("Arquivo original não encontrado. Por favor, salve novamente.");
+                    fileHandle = null;
+                    await handleSaveAsDiagram();
+                } else {
+                    console.error("Erro ao salvar alterações:", err);
+                    showModal("Não foi possível salvar as alterações.");
+                }
+                return false;
+            }
+        } else {
+            await handleSaveAsDiagram();
+        }
+    }
+    
+    // FUNÇÃO "PORTEIRO": Verifica se há alterações antes de carregar
+    async function handleLoadDiagram() {
+        if (!isDirty) {
+            // Se não há alterações, carrega o arquivo diretamente.
+            await proceedWithLoading();
+        } else {
+            // Se há alterações, mostra o modal de confirmação.
+            const choice = await showConfirmationModal();
+            switch (choice) {
+                case 'save':
+                    // Tenta salvar primeiro. handleSaveDiagram agora retorna true/false.
+                    const savedSuccessfully = await handleSaveDiagram();
+                    if (savedSuccessfully) {
+                        // Se o salvamento foi bem-sucedido, prossegue para carregar o novo arquivo.
+                        await proceedWithLoading();
+                    }
+                    break;
+                case 'discard':
+                    // Se o usuário descartar, prossegue para carregar o novo arquivo.
+                    await proceedWithLoading();
+                    break;
+                case 'cancel':
+                    // Se o usuário cancelar, não faz nada.
+                    break;
+            }
+        }
+    }
+
+    // NOVA FUNÇÃO AUXILIAR: Contém a lógica de carregamento que estava antes em handleLoadDiagram
+    async function proceedWithLoading() {
+        // Verifica se a API está disponível
+        if (!('showOpenFilePicker' in window)) {
+            showModal("Erro: Esta funcionalidade requer um navegador compatível (como Chrome ou Edge)...");
+            return;
+        }
+
+        try {
+            const [handle] = await window.showOpenFilePicker({
+                types: [{ description: 'Diagrama JSON', accept: { 'application/json': ['.json'] } }],
+                multiple: false,
+            });
+
+            const permissionStatus = await handle.queryPermission({ mode: 'readwrite' });
+            if (permissionStatus !== 'granted') {
+                const requestStatus = await handle.requestPermission({ mode: 'readwrite' });
+                if (requestStatus !== 'granted') {
+                    showModal("Permissão de escrita negada. O arquivo foi carregado em modo de leitura.");
+                }
+            }
+
+            const file = await handle.getFile();
+            const content = await file.text();
+            fileHandle = handle;
+            updateFileInfoBar(fileHandle);
+            const data = JSON.parse(content);
+
+            if (!data.items || !data.connections) {
+                showModal('Arquivo de diagrama inválido ou em formato antigo.');
+                return;
+            }
+
+            // Limpeza do canvas e estado
+            undoStack = [];
+            redoStack = [];
+            updateUndoRedoButtons();
+            selectedItems.clear();
+            selectedConnections.clear();
+            editingNode = null;
+            hideToolbar();
+            svg.innerHTML = '';
+            container.innerHTML = '';
+            connections = [];
+            viewport = data.viewport || { scale: 1.0, panX: 0, panY: 0 };
+
+            let maxLoadedIdNum = 0;
+
+            function createItemRecursive(itemData, parentElement) {
+                if (!itemData) return;
+                const idMatch = itemData.id.match(/(?:node|group)-(\d+)/);
+                if (idMatch && idMatch[1]) {
+                    maxLoadedIdNum = Math.max(maxLoadedIdNum, parseInt(idMatch[1], 10));
+                }
+
+                if (itemData.type === 'group') {
+                    const group = document.createElement('div');
+                    group.id = itemData.id;
+                    group.className = 'group-container';
+                    Object.assign(group.style, {
+                        cssText: itemData.inlineStyle,
+                        left: itemData.left,
+                        top: itemData.top,
+                        width: itemData.width,
+                        height: itemData.height
+                    });
+                    parentElement.appendChild(group);
+
+                    if (itemData.children) {
+                        itemData.children.forEach(childData => createItemRecursive(childData, group));
+                    }
+                } else {
+                    const nodeData = itemData;
                     let newNode;
                     let options = { isUndoRedo: true };
-
                     if (nodeData.type === 'image') {
                         options.type = 'image';
                         options.imageUrl = nodeData.imageUrl;
                         newNode = createNode(null, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, options);
                         const img = newNode.querySelector('img.node-image-content');
-                        if (img && nodeData.imageStyle) {
-                            img.style.cssText = nodeData.imageStyle;
-                        }
+                        if (img && nodeData.imageStyle) img.style.cssText = nodeData.imageStyle;
                     } else {
                         newNode = createNode(nodeData.text, parseFloat(nodeData.left), parseFloat(nodeData.top), nodeData.id, options);
                         const contentDiv = newNode.querySelector('.content');
@@ -2530,34 +2526,51 @@
                             contentDiv.style.textAlign = nodeData.contentTextAlign || 'center';
                             contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
                         }
-                        newNode.style.alignItems = nodeData.alignItems || 'center'; // Load vertical alignment
+                        newNode.style.alignItems = nodeData.alignItems || 'center';
                     }
-
                     newNode.className = 'node ' + nodeData.className;
-                    newNode.style.cssText = nodeData.inlineStyle;
-                    newNode.style.left = nodeData.left;
-                    newNode.style.top = nodeData.top;
-                    newNode.style.width = nodeData.width;
-                    newNode.style.height = nodeData.height;
+                    Object.assign(newNode.style, {
+                        cssText: nodeData.inlineStyle,
+                        left: nodeData.left,
+                        top: nodeData.top,
+                        width: nodeData.width,
+                        height: nodeData.height
+                    });
+                    if (parentElement !== container) newNode.classList.add('in-group');
                     updateNodeVisuals(newNode);
+                    parentElement.appendChild(newNode);
+                }
+            }
 
-                    const match = nodeData.id.match(/node-(\d+)/);
-                    if (match) maxLoadedIdNum = Math.max(maxLoadedIdNum, parseInt(match[1]));
-                });
-                connections = data.connections;
-                nodeCounter = data.nodeCounter ?? maxLoadedIdNum + 1;
-                applyViewportTransform();
-                updateSelectionVisuals();
-                resetZoomTo100();
-            } catch (err) {
+            data.items.forEach(itemData => createItemRecursive(itemData, container));
+
+            connections = data.connections;
+            nodeCounter = maxLoadedIdNum + 1;
+            applyViewportTransform();
+            updateSelectionVisuals();
+            isDirty = false; // Estado agora está "limpo" em relação ao novo arquivo.
+
+        } catch (err) {
+            if (err.name !== 'AbortError') {
                 console.error("Erro ao carregar diagrama:", err);
                 showModal('Falha ao carregar o arquivo do diagrama.');
             }
-        };
-        reader.readAsText(file);
-        event.target.value = null;
+        }
     }
-    function handleSaveDiagram() { const diagramData = { nodes: Array.from(document.querySelectorAll('.node')).map(getNodeDataForUndo), connections: connections, nodeCounter: nodeCounter, viewport: viewport }; const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(diagramData, null, 2)], { type: 'application/json' })); a.download = 'diagrama.json'; a.click(); URL.revokeObjectURL(a.href); }
+    // =========================================================================
+    // === FIM DO BLOCO DE CÓDIGO ==============================================
+    // =========================================================================
+
+    // FUNÇÃO PARA ATUALIZAR A BARRA DE INFORMAÇÕES ---
+    function updateFileInfoBar(handle) {
+        if (handle && handle.name) {
+            fileInfoText.textContent = `Editando: ${handle.name}`;
+            fileInfoBar.style.display = 'block'; // Mostra a barra
+        } else {
+            fileInfoText.textContent = '';
+            fileInfoBar.style.display = 'none'; // Esconde a barra
+        }
+    }
 
     // --- Printing ---
     function getDiagramBounds() { let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity; let hasElements = false; document.querySelectorAll('.node, .group-container').forEach(item => { hasElements = true; minX = Math.min(minX, item.offsetLeft); minY = Math.min(minY, item.offsetTop); maxX = Math.max(maxX, item.offsetLeft + item.offsetWidth); maxY = Math.max(maxY, item.offsetTop + item.offsetHeight); }); if (!hasElements) return { x: 0, y: 0, width: A4_WIDTH_PX, height: A4_HEIGHT_PX, isEmpty: true }; const padding = 20; return { x: minX - padding, y: minY - padding, width: (maxX - minX) + 2 * padding, height: (maxY - minY) + 2 * padding, isEmpty: false }; }
@@ -3047,168 +3060,166 @@
         } else { actionState.type = 'potential-marquee'; }
     });
     document.addEventListener('mousemove', e => {
-    globalScreenMouse = { x: e.clientX, y: e.clientY };
-    if (isPanning) {
-        const dx = e.clientX - lastPanPosition.x, dy = e.clientY - lastPanPosition.y;
-        viewport.panX += dx; viewport.panY += dy;
-        lastPanPosition = { x: e.clientX, y: e.clientY };
-        applyViewportTransform();
-        return;
-    }
-    if (!actionState.type) return;
-    if (!actionState.moved && (Math.abs(e.clientX - actionState.startX) > DRAG_THRESHOLD || Math.abs(e.clientY - actionState.startY) > DRAG_THRESHOLD)) {
-        actionState.moved = true;
-        if (actionState.type === 'potential-drag' && actionState.target) {
-            actionState.type = 'dragging';
-            actionState.target.classList.add('dragging');
-            document.body.style.cursor = 'grabbing';
-            const itemToSelect = actionState.target;
-            if (!actionState.isCtrl && !selectedItems.has(itemToSelect.id)) {
-                selectItem(itemToSelect, false);
-            }
-            const targets = selectedItems.has(itemToSelect.id) ? Array.from(selectedItems).map(id => document.getElementById(id)) : [itemToSelect];
-            actionState.initialPositions = targets.filter(Boolean).map(el => ({ element: el, initialLeft: el.offsetLeft, initialTop: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }));
-        } else if (actionState.type === 'potential-marquee') {
-            actionState.type = 'marquee';
-            marquee.style.visibility = 'visible';
+        globalScreenMouse = { x: e.clientX, y: e.clientY };
+        if (isPanning) {
+            const dx = e.clientX - lastPanPosition.x, dy = e.clientY - lastPanPosition.y;
+            viewport.panX += dx; viewport.panY += dy;
+            lastPanPosition = { x: e.clientX, y: e.clientY };
+            applyViewportTransform();
+            return;
         }
-    }
-    switch (actionState.type) {
-        case 'dragging': { // ✨ BLOCO ATUALIZADO
-            const deltaX = (e.clientX - actionState.startX) / viewport.scale;
-            const deltaY = (e.clientY - actionState.startY) / viewport.scale;
-
-            // 1. Calcular os limites da seleção inteira na sua posição *potencial*
-            let selectionBounds = {
-                minX: Infinity, minY: Infinity,
-                maxX: -Infinity, maxY: -Infinity,
-            };
-            actionState.initialPositions.forEach(pos => {
-                selectionBounds.minX = Math.min(selectionBounds.minX, pos.initialLeft);
-                selectionBounds.minY = Math.min(selectionBounds.minY, pos.initialTop);
-                selectionBounds.maxX = Math.max(selectionBounds.maxX, pos.initialLeft + pos.width);
-                selectionBounds.maxY = Math.max(selectionBounds.maxY, pos.initialTop + pos.height);
-            });
-
-            const potentialRect = {
-                left: selectionBounds.minX + deltaX,
-                top: selectionBounds.minY + deltaY,
-                width: selectionBounds.maxX - selectionBounds.minX,
-                height: selectionBounds.maxY - selectionBounds.minY,
-            };
-
-            // 2. Obter os ajustes de snap
-            const movingItemIds = new Set(actionState.initialPositions.map(p => p.element.id));
-            const snapAdjustments = updateAndDrawAlignmentGuides(potentialRect, movingItemIds, 'move', { x: deltaX, y: deltaY });
-
-            // 3. Aplicar a posição final com o ajuste de snap a todos os nós
-            actionState.initialPositions.forEach(pos => {
-                pos.element.style.left = `${pos.initialLeft + deltaX + snapAdjustments.x}px`;
-                pos.element.style.top = `${pos.initialTop + deltaY + snapAdjustments.y}px`;
-            });
-
-            updateSelectionVisuals();
-            drawLines();
-            break;
-        }
-        case 'resizing':
-            if (!actionState.target) break;
-
+        if (!actionState.type) return;
+        if (!actionState.moved && (Math.abs(e.clientX - actionState.startX) > DRAG_THRESHOLD || Math.abs(e.clientY - actionState.startY) > DRAG_THRESHOLD)) {
             actionState.moved = true;
-            const node = actionState.target;
-            const original = actionState.original;
-            const minWidth = 100, minHeight = 40;
+            if (actionState.type === 'potential-drag' && actionState.target) {
+                actionState.type = 'dragging';
+                actionState.target.classList.add('dragging');
+                document.body.style.cursor = 'grabbing';
+                const itemToSelect = actionState.target;
+                if (!actionState.isCtrl && !selectedItems.has(itemToSelect.id)) {
+                    selectItem(itemToSelect, false);
+                }
+                const targets = selectedItems.has(itemToSelect.id) ? Array.from(selectedItems).map(id => document.getElementById(id)) : [itemToSelect];
+                actionState.initialPositions = targets.filter(Boolean).map(el => ({ element: el, initialLeft: el.offsetLeft, initialTop: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }));
+            } else if (actionState.type === 'potential-marquee') {
+                actionState.type = 'marquee';
+                marquee.style.visibility = 'visible';
+            }
+        }
+        switch (actionState.type) {
+            case 'dragging': { // ✨ BLOCO ATUALIZADO
+                const deltaX = (e.clientX - actionState.startX) / viewport.scale;
+                const deltaY = (e.clientY - actionState.startY) / viewport.scale;
 
-            let deltaX_resize = (e.clientX - actionState.startX) / viewport.scale;
-            let deltaY_resize = (e.clientY - actionState.startY) / viewport.scale;
+                // 1. Calcular os limites da seleção inteira na sua posição *potencial*
+                let selectionBounds = {
+                    minX: Infinity, minY: Infinity,
+                    maxX: -Infinity, maxY: -Infinity,
+                };
+                actionState.initialPositions.forEach(pos => {
+                    selectionBounds.minX = Math.min(selectionBounds.minX, pos.initialLeft);
+                    selectionBounds.minY = Math.min(selectionBounds.minY, pos.initialTop);
+                    selectionBounds.maxX = Math.max(selectionBounds.maxX, pos.initialLeft + pos.width);
+                    selectionBounds.maxY = Math.max(selectionBounds.maxY, pos.initialTop + pos.height);
+                });
 
-            // --- 1. CALCULAR GEOMETRIA POTENCIAL EM MEMÓRIA ---
-            let potentialRect_resize = { left: original.x, top: original.y, width: original.width, height: original.height };
+                const potentialRect = {
+                    left: selectionBounds.minX + deltaX,
+                    top: selectionBounds.minY + deltaY,
+                    width: selectionBounds.maxX - selectionBounds.minX,
+                    height: selectionBounds.maxY - selectionBounds.minY,
+                };
 
-            if (actionState.direction.includes('r')) potentialRect_resize.width = original.width + deltaX_resize;
-            if (actionState.direction.includes('l')) { potentialRect_resize.width = original.width - deltaX_resize; potentialRect_resize.left = original.x + deltaX_resize; }
-            if (actionState.direction.includes('b')) potentialRect_resize.height = original.height + deltaY_resize;
-            if (actionState.direction.includes('t')) { potentialRect_resize.height = original.height - deltaY_resize; potentialRect_resize.top = original.y + deltaY_resize; }
+                // 2. Obter os ajustes de snap
+                const movingItemIds = new Set(actionState.initialPositions.map(p => p.element.id));
+                const snapAdjustments = updateAndDrawAlignmentGuides(potentialRect, movingItemIds, 'move', { x: deltaX, y: deltaY });
 
-            potentialRect_resize.width = Math.max(minWidth, potentialRect_resize.width);
-            potentialRect_resize.height = Math.max(minHeight, potentialRect_resize.height);
+                // 3. Aplicar a posição final com o ajuste de snap a todos os nós
+                actionState.initialPositions.forEach(pos => {
+                    pos.element.style.left = `${pos.initialLeft + deltaX + snapAdjustments.x}px`;
+                    pos.element.style.top = `${pos.initialTop + deltaY + snapAdjustments.y}px`;
+                });
 
-            // --- 2. OBTER SNAPS BASEADO NA GEOMETRIA EM MEMÓRIA (AGORA COM AJUSTE) ---
-            const movingItemIds_resize = new Set([node.id]);
-            const snapAdjustments_resize = updateAndDrawAlignmentGuides(potentialRect_resize, movingItemIds_resize, actionState.direction, { x: deltaX_resize, y: deltaY_resize });
+                updateSelectionVisuals();
+                drawLines();
+                break;
+            }
+            case 'resizing':
+                if (!actionState.target) break;
 
-            // --- 3. APLICAR AJUSTES DE SNAP À GEOMETRIA FINAL ---
-            let finalRect = { ...potentialRect_resize };
-            if (actionState.direction.includes('l')) finalRect.left += snapAdjustments_resize.x;
-            if (actionState.direction.includes('r')) finalRect.width += snapAdjustments_resize.x;
-            if (actionState.direction.includes('t')) finalRect.top += snapAdjustments_resize.y;
-            if (actionState.direction.includes('b')) finalRect.height += snapAdjustments_resize.y;
+                actionState.moved = true;
+                const node = actionState.target;
+                const original = actionState.original;
+                const minWidth = 100, minHeight = 40;
 
-            // Se o snap ajustou a posição, a dimensão também precisa ser ajustada para o lado oposto não se mover
-            if (actionState.direction.includes('l') && snapAdjustments_resize.x !== 0) finalRect.width -= snapAdjustments_resize.x;
-            if (actionState.direction.includes('t') && snapAdjustments_resize.y !== 0) finalRect.height -= snapAdjustments_resize.y;
+                let deltaX_resize = (e.clientX - actionState.startX) / viewport.scale;
+                let deltaY_resize = (e.clientY - actionState.startY) / viewport.scale;
 
-            // --- 4. APLICAR ESTILOS AO NÓ UMA ÚNICA VEZ ---
-            finalRect.width = Math.max(minWidth, finalRect.width);
-            finalRect.height = Math.max(minHeight, finalRect.height);
+                // --- 1. CALCULAR GEOMETRIA POTENCIAL EM MEMÓRIA ---
+                let potentialRect_resize = { left: original.x, top: original.y, width: original.width, height: original.height };
 
-            node.style.left = `${finalRect.left}px`;
-            node.style.top = `${finalRect.top}px`;
-            node.style.width = `${finalRect.width}px`;
-            node.style.height = `${finalRect.height}px`;
+                if (actionState.direction.includes('r')) potentialRect_resize.width = original.width + deltaX_resize;
+                if (actionState.direction.includes('l')) { potentialRect_resize.width = original.width - deltaX_resize; potentialRect_resize.left = original.x + deltaX_resize; }
+                if (actionState.direction.includes('b')) potentialRect_resize.height = original.height + deltaY_resize;
+                if (actionState.direction.includes('t')) { potentialRect_resize.height = original.height - deltaY_resize; potentialRect_resize.top = original.y + deltaY_resize; }
 
-            drawLines();
-            break;
-        case 'linking':
-            const worldMouseDrag = screenToWorld(e.clientX, e.clientY);
-            let snappedConnector = null;
-            let minDistance = Infinity;
+                potentialRect_resize.width = Math.max(minWidth, potentialRect_resize.width);
+                potentialRect_resize.height = Math.max(minHeight, potentialRect_resize.height);
 
-            const oldSnapTarget = document.querySelector('.connector.snap-target');
-            if (oldSnapTarget) oldSnapTarget.classList.remove('snap-target');
+                // --- 2. OBTER SNAPS BASEADO NA GEOMETRIA EM MEMÓRIA (AGORA COM AJUSTE) ---
+                const movingItemIds_resize = new Set([node.id]);
+                const snapAdjustments_resize = updateAndDrawAlignmentGuides(potentialRect_resize, movingItemIds_resize, actionState.direction, { x: deltaX_resize, y: deltaY_resize });
 
-            document.querySelectorAll('.connector').forEach(connEl => {
-                const nodeId = connEl.dataset.nodeId;
-                if (nodeId !== actionState.target.id) {
-                    const nodeEl = document.getElementById(nodeId);
-                    if (nodeEl) {
-                        const connPos = getConnectorPosition(nodeEl, connEl.dataset.position);
-                        const dx = connPos.x - worldMouseDrag.x;
-                        const dy = connPos.y - worldMouseDrag.y;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
+                // --- 3. APLICAR AJUSTES DE SNAP À GEOMETRIA FINAL ---
+                let finalRect = { ...potentialRect_resize };
+                if (actionState.direction.includes('l')) finalRect.left += snapAdjustments_resize.x;
+                if (actionState.direction.includes('r')) finalRect.width += snapAdjustments_resize.x;
+                if (actionState.direction.includes('t')) finalRect.top += snapAdjustments_resize.y;
+                if (actionState.direction.includes('b')) finalRect.height += snapAdjustments_resize.y;
 
-                        if (distance < CONNECTOR_SNAP_RADIUS && distance < minDistance) {
-                            minDistance = distance;
-                            snappedConnector = connEl;
+                // Se o snap ajustou a posição, a dimensão também precisa ser ajustada para o lado oposto não se mover
+                if (actionState.direction.includes('l') && snapAdjustments_resize.x !== 0) finalRect.width -= snapAdjustments_resize.x;
+                if (actionState.direction.includes('t') && snapAdjustments_resize.y !== 0) finalRect.height -= snapAdjustments_resize.y;
+
+                // --- 4. APLICAR ESTILOS AO NÓ UMA ÚNICA VEZ ---
+                finalRect.width = Math.max(minWidth, finalRect.width);
+                finalRect.height = Math.max(minHeight, finalRect.height);
+
+                node.style.left = `${finalRect.left}px`;
+                node.style.top = `${finalRect.top}px`;
+                node.style.width = `${finalRect.width}px`;
+                node.style.height = `${finalRect.height}px`;
+
+                drawLines();
+                break;
+            case 'linking':
+                const worldMouseDrag = screenToWorld(e.clientX, e.clientY);
+                let snappedConnector = null;
+                let minDistance = Infinity;
+
+                const oldSnapTarget = document.querySelector('.connector.snap-target');
+                if (oldSnapTarget) oldSnapTarget.classList.remove('snap-target');
+
+                document.querySelectorAll('.connector').forEach(connEl => {
+                    const nodeId = connEl.dataset.nodeId;
+                    if (nodeId !== actionState.target.id) {
+                        const nodeEl = document.getElementById(nodeId);
+                        if (nodeEl) {
+                            const connPos = getConnectorPosition(nodeEl, connEl.dataset.position);
+                            const dx = connPos.x - worldMouseDrag.x;
+                            const dy = connPos.y - worldMouseDrag.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+
+                            if (distance < CONNECTOR_SNAP_RADIUS && distance < minDistance) {
+                                minDistance = distance;
+                                snappedConnector = connEl;
+                            }
                         }
                     }
+                });
+
+                if (snappedConnector) {
+                    snappedConnector.classList.add('snap-target');
                 }
-            });
 
-            if (snappedConnector) {
-                snappedConnector.classList.add('snap-target');
-            }
-
-            drawLines();
-            break;
-        case 'marquee':
-            const x = Math.min(e.clientX, actionState.startX), y = Math.min(e.clientY, actionState.startY), w = Math.abs(e.clientX - actionState.startX), h = Math.abs(e.clientY - actionState.startY);
-            marquee.style.left = `${x}px`;
-            marquee.style.top = `${y}px`;
-            marquee.style.width = `${w}px`;
-            marquee.style.height = `${h}px`;
-            break;
-    }
-    if (actionState.type && !actionState.type.startsWith('potential')) e.preventDefault();
-});
+                drawLines();
+                break;
+            case 'marquee':
+                const x = Math.min(e.clientX, actionState.startX), y = Math.min(e.clientY, actionState.startY), w = Math.abs(e.clientX - actionState.startX), h = Math.abs(e.clientY - actionState.startY);
+                marquee.style.left = `${x}px`;
+                marquee.style.top = `${y}px`;
+                marquee.style.width = `${w}px`;
+                marquee.style.height = `${h}px`;
+                break;
+        }
+        if (actionState.type && !actionState.type.startsWith('potential')) e.preventDefault();
+    });
     document.addEventListener('mouseup', handleInteractionEnd);
     document.addEventListener('keydown', e => {
         const activeEl = document.activeElement;
         const isEditingText = activeEl?.closest('.node.editing .content');
         const isInputFocused = ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl?.tagName);
 
-        // --- MELHORIA APLICADA AQUI ---
-        // Apenas aciona o Desfazer/Refazer global se o usuário NÃO estiver editando um texto.
         if ((e.ctrlKey || e.metaKey) && !isEditingText) {
             if (e.key.toLowerCase() === 'z') { handleUndo(); e.preventDefault(); return; }
             if (e.key.toLowerCase() === 'y') { handleRedo(); e.preventDefault(); return; }
@@ -3218,7 +3229,6 @@
             if (e.key === 'Escape') {
                 if (isEditingText) finishEditing(editingNode);
             } else {
-                // Permite que o Ctrl+Z nativo (e outros atalhos de texto) funcione.
                 return;
             }
         }
@@ -3239,15 +3249,55 @@
         }
 
         if (selectedItems.size > 0 && !isEditingText && !isInputFocused) {
-            let moved = false;
-            switch (e.key) {
-                case 'ArrowUp': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop - KEY_MOVE_STEP}px`; }); moved = true; break;
-                case 'ArrowDown': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop + KEY_MOVE_STEP}px`; }); moved = true; break;
-                case 'ArrowLeft': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft - KEY_MOVE_STEP}px`; }); moved = true; break;
-                case 'ArrowRight': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft + KEY_MOVE_STEP}px`; }); moved = true; break;
+            // Verifica se a tecla pressionada é uma das setas
+            if (e.key.startsWith('Arrow')) {
+                e.preventDefault();
+                let moved = false;
+
+                // 1. Guarda a posição inicial ANTES do primeiro movimento da sequência
+                if (!initialKeyMovePositions) {
+                    initialKeyMovePositions = Array.from(selectedItems).map(id => {
+                        const el = document.getElementById(id);
+                        return el ? { nodeId: id, oldLeft: el.style.left, oldTop: el.style.top } : null;
+                    }).filter(Boolean);
+                }
+
+                // Limpa o timer anterior para reiniciar a contagem
+                clearTimeout(keyMoveUndoTimer);
+
+                // 2. Move os nós selecionados
+                switch (e.key) {
+                    case 'ArrowUp': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop - KEY_MOVE_STEP}px`; }); moved = true; break;
+                    case 'ArrowDown': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.top = `${n.offsetTop + KEY_MOVE_STEP}px`; }); moved = true; break;
+                    case 'ArrowLeft': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft - KEY_MOVE_STEP}px`; }); moved = true; break;
+                    case 'ArrowRight': selectedItems.forEach(id => { const n = document.getElementById(id); if(n) n.style.left = `${n.offsetLeft + KEY_MOVE_STEP}px`; }); moved = true; break;
+                }
+
+                if (moved) {
+                    updateSelectionVisuals();
+                    drawLines();
+
+                    // 3. Define um timer. Se o usuário parar de pressionar as teclas, a ação será gravada.
+                    keyMoveUndoTimer = setTimeout(() => {
+                        const finalChanges = initialKeyMovePositions.map(pos => {
+                            const el = document.getElementById(pos.nodeId);
+                            // Compara a posição original com a final
+                            return el ? { ...pos, newLeft: el.style.left, newTop: el.style.top } : null;
+                        }).filter(Boolean);
+
+                        // Garante que só grava se realmente houve mudança
+                        const hasMoved = finalChanges.some(c => c.oldLeft !== c.newLeft || c.oldTop !== c.newTop);
+
+                        if (hasMoved) {
+                            recordAction({ type: 'moveNodes', changes: finalChanges });
+                        }
+                        // Reseta para a próxima sequência de movimentos
+                        initialKeyMovePositions = null;
+                    }, 500); // Meio segundo de espera
+                }
             }
-            if (moved) { e.preventDefault(); updateSelectionVisuals(); drawLines(); }
         }
+
 
         if (['Delete', 'Backspace'].includes(e.key) && !isEditingText && !isInputFocused) {
             if (selectedItems.size > 0 || selectedConnections.size > 0) { e.preventDefault(); handleDelete(); }
@@ -3266,8 +3316,6 @@
     pageSizeSelect.addEventListener('change', () => { if (pageSizeSelect.value === 'custom') { customSizeInputs.classList.remove('hidden'); } else { customSizeInputs.classList.add('hidden'); } });
     applyPageSettings.addEventListener('click', () => { updatePageGuide(); fitToA4PageGuide(); document.getElementById('page-menu').classList.add('hidden'); });
     addNodeButton.addEventListener('click', () => { let refNode = null; if (selectedItems.size === 1) refNode = document.getElementById(selectedItems.values().next().value); else if (document.querySelectorAll('.node').length > 0) refNode = Array.from(document.querySelectorAll('.node')).reduce((last, curr) => parseInt(curr.id.split('-')[1]) > parseInt(last.id.split('-')[1]) ? curr : last); let newNodeX, newNodeY; if (refNode) { newNodeX = refNode.offsetLeft + refNode.offsetWidth + 20; newNodeY = refNode.offsetTop + 80;; } else { const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2); newNodeX = worldCenter.x - 50; newNodeY = worldCenter.y - 20; const pageW = a4PageGuideRect.getAttribute('width'); const pageH = a4PageGuideRect.getAttribute('height'); newNodeX = Math.max(20, Math.min(newNodeX, pageW - 120)); newNodeY = Math.max(20, Math.min(newNodeY, pageH - 60)); } const newNode = createNode('Novo Item', newNodeX, newNodeY); clearSelection(); selectedItems.add(newNode.id); updateSelectionVisuals(); });
-    saveDiagramButton.addEventListener('click', handleSaveDiagram);
-    loadDiagramInput.addEventListener('change', handleLoadDiagram);
     printToPDFBtn.addEventListener('click', () => window.print());
     deleteBtn.addEventListener('click', handleDelete);
     copyFormattingBtn.addEventListener('click', handleCopyFormatting);
@@ -4036,6 +4084,222 @@
         event.target.value = null;
     }
 
+    function handleImportDiagram(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!data.nodes || !data.connections) {
+                    showModal('Arquivo de diagrama inválido ou mal formatado.');
+                    return;
+                }
+
+                // Não limpa o canvas, apenas adiciona.
+                clearSelection();
+
+                const idMap = new Map();
+                const pastedNodesData = [];
+                const pastedConnectionsData = [];
+                const newSelectedIds = new Set();
+
+                if (data.nodes.length === 0) return;
+
+                // Calcula um ponto de inserção centralizado na visão atual
+                const worldCenter = screenToWorld(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2);
+                let minX = Infinity, minY = Infinity;
+                data.nodes.forEach(nodeData => {
+                    minX = Math.min(minX, parseFloat(nodeData.left));
+                    minY = Math.min(minY, parseFloat(nodeData.top));
+                });
+
+                const offsetX = worldCenter.x - minX;
+                const offsetY = worldCenter.y - minY;
+
+
+                // 1. Criar os novos nós, remapeando os IDs para evitar conflitos
+                data.nodes.forEach(nodeData => {
+                    const oldId = nodeData.id;
+                    const newId = 'node-' + nodeCounter++;
+                    idMap.set(oldId, newId);
+
+                    const newX = parseFloat(nodeData.left) + offsetX;
+                    const newY = parseFloat(nodeData.top) + offsetY;
+
+                    let newNode;
+                    let options = { isUndoRedo: true, recordUndo: false }; // a ação de undo será gravada em lote
+
+                    if (nodeData.type === 'image') {
+                        options.type = 'image';
+                        options.imageUrl = nodeData.imageUrl;
+                        newNode = createNode(null, newX, newY, newId, options);
+                        const img = newNode.querySelector('img.node-image-content');
+                        if (img && nodeData.imageStyle) {
+                            img.style.cssText = nodeData.imageStyle;
+                        }
+                    } else {
+                        newNode = createNode(nodeData.text, newX, newY, newId, options);
+                        const contentDiv = newNode.querySelector('.content');
+                        if (contentDiv) {
+                            contentDiv.style.textAlign = nodeData.contentTextAlign || 'center';
+                            contentDiv.style.lineHeight = nodeData.contentLineHeight || 'normal';
+                        }
+                        newNode.style.alignItems = nodeData.alignItems || 'center';
+                    }
+
+                    newNode.className = 'node ' + nodeData.className;
+                    newNode.style.cssText = nodeData.inlineStyle;
+                    newNode.style.left = `${newX}px`;
+                    newNode.style.top = `${newY}px`;
+                    newNode.style.width = nodeData.width;
+                    newNode.style.height = nodeData.height;
+                    updateNodeVisuals(newNode);
+
+                    newSelectedIds.add(newId);
+                    pastedNodesData.push(getNodeDataForUndo(newNode));
+                });
+
+                // 2. Criar as novas conexões usando o mapa de IDs
+                data.connections.forEach(connData => {
+                    const newFromId = idMap.get(connData.from);
+                    const newToId = idMap.get(connData.to);
+
+                    if (newFromId && newToId) {
+                        const newConnection = { ...connData, from: newFromId, to: newToId };
+                        connections.push(newConnection);
+                        pastedConnectionsData.push(newConnection);
+                    }
+                });
+
+                // 3. Grava uma única ação de "colar" para o histórico, reutilizando a lógica existente
+                if (pastedNodesData.length > 0) {
+                    recordAction({ type: 'pasteNodes', nodesData: pastedNodesData, connectionsData: pastedConnectionsData });
+                }
+
+                // 4. Atualiza a UI
+                selectedItems = newSelectedIds;
+                updateSelectionVisuals();
+                drawLines();
+
+            } catch (err) {
+                console.error("Erro ao importar diagrama:", err);
+                showModal('Falha ao importar o arquivo do diagrama.');
+            } finally {
+                 // Limpa o valor do input para permitir importar o mesmo arquivo novamente
+                event.target.value = null;
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function handleExportPNG() {
+        const textVerticalOffset = -6; // Seu ajuste vertical, que já funcionou.
+
+        // --- CALIBRAÇÃO DE QUEBRA DE LINHA ---
+        // Aumenta a fonte em 2% durante a captura. Isso força a quebra de linha.
+        // Se ainda não quebrar, tente um valor um pouco maior (ex: '1.03em').
+        const fontScaleMultiplier = '1.02em';
+
+        const tempStyle = document.createElement('style');
+        tempStyle.innerHTML = `
+            /* Aplica o ajuste de quebra de linha em todos os textos dentro do nó */
+            .export-in-progress .node, .export-in-progress .node * {
+                font-size: ${fontScaleMultiplier} !important;
+            }
+            /* Aplica o seu ajuste vertical no container do conteúdo */
+            .export-in-progress .node .content {
+                transform: translateY(${textVerticalOffset}px) !important;
+            }
+        `;
+
+        const originalViewport = { ...viewport };
+        const originalPanZoomContainerStyle = panZoomContainer.style.cssText;
+
+        showModal("Renderizando imagem final...");
+
+        try {
+            // 1. PREPARAÇÃO
+            document.head.appendChild(tempStyle);
+            panZoomContainer.classList.add('export-in-progress');
+
+            const bounds = getDiagramBounds();
+            if (bounds.isEmpty) {
+                hideModal();
+                showModal("Não há nada para exportar.");
+                document.head.removeChild(tempStyle);
+                panZoomContainer.classList.remove('export-in-progress');
+                return;
+            }
+
+            clearSelection();
+            viewport.panX = 0; viewport.panY = 0; viewport.scale = 1;
+            panZoomContainer.style.transform = '';
+            drawLines();
+            panZoomContainer.style.fontFamily = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
+
+            // 2. CAPTURA
+            html2canvas(panZoomContainer, {
+                x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+                scale: 2, backgroundColor: '#f9fafb', useCORS: true, logging: false
+            }).then(canvas => {
+                const a = document.createElement('a');
+                a.href = canvas.toDataURL('image/png');
+                a.download = 'diagrama.png';
+                a.click();
+                hideModal();
+            }).catch(err => {
+                console.error("Erro ao exportar para PNG:", err);
+                hideModal();
+                showModal("Ocorreu um erro durante a exportação.");
+            });
+
+        } finally {
+            // 4. LIMPEZA E RESTAURAÇÃO
+            setTimeout(() => {
+                if(document.head.contains(tempStyle)) {
+                    document.head.removeChild(tempStyle);
+                }
+                panZoomContainer.classList.remove('export-in-progress');
+
+                panZoomContainer.style.cssText = originalPanZoomContainerStyle;
+                viewport.scale = originalViewport.scale;
+                viewport.panX = originalViewport.panX;
+                viewport.panY = originalViewport.panY;
+                applyViewportTransform();
+            }, 500);
+        }
+    }
+
+    /**
+     * Mede a largura de um texto com um estilo específico.
+     */
+    function measureTextWidth(text, style) {
+        textMeasurer.style.font = style.font;
+        textMeasurer.textContent = text;
+        return textMeasurer.offsetWidth;
+    }
+
+    /**
+     * Função auxiliar que percorre a árvore de nós e extrai texto e elementos
+     * em uma lista plana, preservando a ordem.
+     */
+    function processNodeForWrapping(contentNode, list) {
+        Array.from(contentNode.childNodes).forEach(child => {
+            if (child.nodeType === Node.ELEMENT_NODE) {
+                if (child.tagName === 'BR') {
+                    list.push({ type: 'break' });
+                } else {
+                    // Entra no elemento para processar seus filhos
+                    processNodeForWrapping(child, list);
+                }
+            } else if (child.nodeType === Node.TEXT_NODE && child.nodeValue.trim() !== '') {
+                list.push({ type: 'text', node: child });
+            }
+        });
+    }
+
     // ==========INICIO DO CONTA-GOTAS (EYEDROPPER) ---
 
     // Pega as referências dos elementos
@@ -4135,7 +4399,8 @@
 
     //=======Fim conta gotas========
 
-function initialize() {
+    function initialize() {
+        // --- Lógica de inicialização existente (permanece a mesma) ---
         applyTheme();
         updateUndoRedoButtons();
         isA4ModeActive = true;
@@ -4150,20 +4415,48 @@ function initialize() {
         makeDraggable(groupContextMenu, document.getElementById('group-context-header'));
         makeDraggable(connectionToolbar, document.getElementById('connection-toolbar-header'));
 
+        // --- Listeners de eventos existentes (permanecem os mesmos) ---
         addImageBtn.addEventListener('click', () => imageUploadInput.click());
         imageUploadInput.addEventListener('change', handleImageUpload);
+        
+        const importDiagramInput = document.getElementById('importDiagramInput');
+        if (importDiagramInput) {
+            importDiagramInput.addEventListener('change', handleImportDiagram);
+        }
 
-        // Listeners para os botões do menu "Editar"
         document.getElementById('copyFormattingBtn').addEventListener('click', handleCopyFormatting);
         document.getElementById('pasteFormattingBtn').addEventListener('click', handlePasteFormatting);
         document.getElementById('copyTextFormattingBtn').addEventListener('click', handleCopyTextFormatting);
         document.getElementById('pasteTextFormattingBtn').addEventListener('click', handlePasteTextFormatting);
+        
+        const exportToPNGBtn = document.getElementById('exportToPNGBtn');
+        if(exportToPNGBtn) {
+            exportToPNGBtn.addEventListener('click', handleExportPNG);
+        }
 
-        // Adiciona a funcionalidade de fechar o menu "Arquivo" ao clicar em um item.
+        // 1. Conecta os botões de Salvar, Salvar Como e Carregar às novas funções
+        document.getElementById('saveDiagram').addEventListener('click', handleSaveDiagram);
+        document.getElementById('saveAsDiagram').addEventListener('click', handleSaveAsDiagram);
+        document.getElementById('loadDiagramLabel').addEventListener('click', handleLoadDiagram);
+
+        // 2. Adiciona o atalho de teclado para salvar (Ctrl+S)
+        document.addEventListener('keydown', e => {
+            // Verifica se a tecla 's' foi pressionada junto com Ctrl (ou Cmd no Mac)
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault(); // Impede a ação padrão do navegador (que é salvar a página)
+                handleSaveDiagram(); // Chama sua nova função de salvamento rápido
+            }
+        });
+
+        // 3. Lógica atualizada para fechar o menu "Arquivo" ao clicar em um item.
+        //    Isso garante que os novos botões também fechem o menu.
         const fileMenuItems = [
             document.getElementById('saveDiagram'),
+            document.getElementById('saveAsDiagram'), // Adicionado
+            document.getElementById('loadDiagramLabel'), // Adicionado
+            document.querySelector('label[for="importDiagramInput"]'),
             document.getElementById('printToPDFBtn'),
-            document.querySelector('label[for="loadDiagramInput"]') // Seleciona a label "Carregar"
+            document.getElementById('exportToPNGBtn')
         ];
 
         fileMenuItems.forEach(item => {
@@ -4174,6 +4467,17 @@ function initialize() {
                         panel.classList.add('hidden');
                     }
                 });
+            }
+        });
+        
+        // AVISO ANTES DE SAIR DA PÁGINA
+        window.addEventListener('beforeunload', (e) => {
+            if (isDirty) {
+                // Necessário para acionar o prompt do navegador.
+                e.preventDefault();
+                // A mensagem customizada não é mais suportada pelos navegadores,
+                // mas 'returnValue' é necessário para compatibilidade.
+                e.returnValue = '';
             }
         });
     }
