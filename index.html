@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Editor Interativo com Grupos - Versão Final</title>
+  <title>Editor de diagramas</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style id="dynamic-print-style"></style>
@@ -2467,7 +2467,7 @@
             const data = JSON.parse(content);
 
             if (!data.items || !data.connections) {
-                showModal('Arquivo de diagrama inválido ou em formato antigo.');
+                showModal('Arquivo de diagrama inválido ou em formato antigo. Tente Importar o arquivo.');
                 return;
             }
 
