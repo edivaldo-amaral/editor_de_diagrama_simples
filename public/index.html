@@ -4195,81 +4195,95 @@
     }
 
     function handleExportPNG() {
-        const textVerticalOffset = -6; // Seu ajuste vertical, que já funcionou.
+        const exportButton = document.getElementById('exportToPNGBtn');
+        if (!exportButton) return;
 
-        // --- CALIBRAÇÃO DE QUEBRA DE LINHA ---
-        // Aumenta a fonte em 2% durante a captura. Isso força a quebra de linha.
-        // Se ainda não quebrar, tente um valor um pouco maior (ex: '1.03em').
-        const fontScaleMultiplier = '1.02em';
+        const originalButtonContent = exportButton.innerHTML;
+        const diagramContainer = document.getElementById('container');
+        const svgLinesContainer = document.getElementById('lines');
 
-        const tempStyle = document.createElement('style');
-        tempStyle.innerHTML = `
-            /* Aplica o ajuste de quebra de linha em todos os textos dentro do nó */
-            .export-in-progress .node, .export-in-progress .node * {
-                font-size: ${fontScaleMultiplier} !important;
+        if (diagramContainer.children.length === 0) {
+            showModal("Não há nada para exportar!");
+            return;
+        }
+
+        // Feedback visual para o usuário
+        exportButton.disabled = true;
+        exportButton.innerHTML = 'Renderizando...';
+        // Fecha o menu dropdown de "Arquivo"
+        const dropdown = exportButton.closest('.dropdown-panel');
+        if (dropdown) dropdown.classList.add('hidden');
+
+
+        // Pega todos os estilos CSS da sua página para garantir 100% de fidelidade
+        let allCss = "";
+        for (const sheet of document.styleSheets) {
+            try {
+                for (const rule of sheet.cssRules) {
+                    allCss += rule.cssText;
+                }
+            } catch (e) {
+                console.warn("Não foi possível ler as regras de CSS, continuando...");
             }
-            /* Aplica o seu ajuste vertical no container do conteúdo */
-            .export-in-progress .node .content {
-                transform: translateY(${textVerticalOffset}px) !important;
-            }
+        }
+
+        // Pega o HTML dos nós e das linhas de conexão
+        const nodesHtml = diagramContainer.innerHTML;
+        const linesSvgHtml = svgLinesContainer.innerHTML;
+        const bounds = getDiagramBounds(); // Usa sua função existente para obter as dimensões
+
+        // Monta um documento HTML completo e autônomo para enviar ao servidor
+        const fullHtmlPayload = `
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <script src="https://cdn.tailwindcss.com"></script>
+                <style>${allCss}</style>
+            </head>
+            <body style="background-color: transparent; margin: 0; padding: 0;">
+                <div id="diagram-wrapper" style="position: relative; width: ${bounds.width}px; height: ${bounds.height}px; top: 0; left: 0;">
+                    <div id="container" style="position: absolute; top: ${-bounds.y}px; left: ${-bounds.x}px;">
+                        ${nodesHtml}
+                    </div>
+                    <svg id="lines" width="${bounds.width}" height="${bounds.height}" style="position: absolute; top: ${-bounds.y}px; left: ${-bounds.x}px; overflow: visible !important;">
+                        ${linesSvgHtml}
+                    </svg>
+                </div>
+            </body>
+            </html>
         `;
 
-        const originalViewport = { ...viewport };
-        const originalPanZoomContainerStyle = panZoomContainer.style.cssText;
-
-        showModal("Renderizando imagem final...");
-
-        try {
-            // 1. PREPARAÇÃO
-            document.head.appendChild(tempStyle);
-            panZoomContainer.classList.add('export-in-progress');
-
-            const bounds = getDiagramBounds();
-            if (bounds.isEmpty) {
-                hideModal();
-                showModal("Não há nada para exportar.");
-                document.head.removeChild(tempStyle);
-                panZoomContainer.classList.remove('export-in-progress');
-                return;
+        // Envia o HTML para o nosso back-end
+        fetch('/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ htmlContent: fullHtmlPayload }),
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.error || `Servidor respondeu com erro ${response.status}`); });
             }
-
-            clearSelection();
-            viewport.panX = 0; viewport.panY = 0; viewport.scale = 1;
-            panZoomContainer.style.transform = '';
-            drawLines();
-            panZoomContainer.style.fontFamily = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
-
-            // 2. CAPTURA
-            html2canvas(panZoomContainer, {
-                x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
-                scale: 2, backgroundColor: '#f9fafb', useCORS: true, logging: false
-            }).then(canvas => {
-                const a = document.createElement('a');
-                a.href = canvas.toDataURL('image/png');
-                a.download = 'diagrama.png';
-                a.click();
-                hideModal();
-            }).catch(err => {
-                console.error("Erro ao exportar para PNG:", err);
-                hideModal();
-                showModal("Ocorreu um erro durante a exportação.");
-            });
-
-        } finally {
-            // 4. LIMPEZA E RESTAURAÇÃO
-            setTimeout(() => {
-                if(document.head.contains(tempStyle)) {
-                    document.head.removeChild(tempStyle);
-                }
-                panZoomContainer.classList.remove('export-in-progress');
-
-                panZoomContainer.style.cssText = originalPanZoomContainerStyle;
-                viewport.scale = originalViewport.scale;
-                viewport.panX = originalViewport.panX;
-                viewport.panY = originalViewport.panY;
-                applyViewportTransform();
-            }, 500);
-        }
+            return response.json();
+        })
+        .then(data => {
+            // Recebe a imagem em formato base64 e dispara o download
+            const a = document.createElement('a');
+            a.href = `data:image/png;base64,${data.image}`;
+            a.download = 'diagrama.png';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        })
+        .catch(error => {
+            console.error('Erro ao exportar:', error);
+            showModal(`Falha ao exportar a imagem: ${error.message}`);
+        })
+        .finally(() => {
+            // Restaura o estado original do botão
+            exportButton.disabled = false;
+            exportButton.innerHTML = originalButtonContent;
+        });
     }
 
     /**
