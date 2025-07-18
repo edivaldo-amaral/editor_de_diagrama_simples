@@ -643,10 +643,6 @@
         </div>
         </div>
     </div>
-    <script>
-        // ... seu script
-    </script>
-    </body>
   
   <script>
     // --- Global Elements ---
@@ -4194,10 +4190,10 @@
         reader.readAsText(file);
     }
 
-    function handleExportPNG() {
+    function exportToPng() {
         const exportButton = document.getElementById('exportToPNGBtn');
         if (!exportButton) return;
-
+        
         const originalButtonContent = exportButton.innerHTML;
         const diagramContainer = document.getElementById('container');
         const svgLinesContainer = document.getElementById('lines');
@@ -4207,15 +4203,11 @@
             return;
         }
 
-        // Feedback visual para o usuário
         exportButton.disabled = true;
         exportButton.innerHTML = 'Renderizando...';
-        // Fecha o menu dropdown de "Arquivo"
         const dropdown = exportButton.closest('.dropdown-panel');
         if (dropdown) dropdown.classList.add('hidden');
 
-
-        // Pega todos os estilos CSS da sua página para garantir 100% de fidelidade
         let allCss = "";
         for (const sheet of document.styleSheets) {
             try {
@@ -4226,19 +4218,17 @@
                 console.warn("Não foi possível ler as regras de CSS, continuando...");
             }
         }
-
-        // Pega o HTML dos nós e das linhas de conexão
+        
         const nodesHtml = diagramContainer.innerHTML;
         const linesSvgHtml = svgLinesContainer.innerHTML;
-        const bounds = getDiagramBounds(); // Usa sua função existente para obter as dimensões
+        const bounds = getDiagramBounds();
 
-        // Monta um documento HTML completo e autônomo para enviar ao servidor
         const fullHtmlPayload = `
             <!DOCTYPE html>
             <html lang="pt-BR">
             <head>
                 <meta charset="UTF-8">
-                <script src="https://cdn.tailwindcss.com"></script>
+                <script src="https://cdn.tailwindcss.com"><\/script>
                 <style>${allCss}</style>
             </head>
             <body style="background-color: transparent; margin: 0; padding: 0;">
@@ -4254,7 +4244,6 @@
             </html>
         `;
 
-        // Envia o HTML para o nosso back-end
         fetch('/export', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4267,7 +4256,6 @@
             return response.json();
         })
         .then(data => {
-            // Recebe a imagem em formato base64 e dispara o download
             const a = document.createElement('a');
             a.href = `data:image/png;base64,${data.image}`;
             a.download = 'diagrama.png';
@@ -4280,7 +4268,6 @@
             showModal(`Falha ao exportar a imagem: ${error.message}`);
         })
         .finally(() => {
-            // Restaura o estado original do botão
             exportButton.disabled = false;
             exportButton.innerHTML = originalButtonContent;
         });
@@ -4445,7 +4432,7 @@
         
         const exportToPNGBtn = document.getElementById('exportToPNGBtn');
         if(exportToPNGBtn) {
-            exportToPNGBtn.addEventListener('click', handleExportPNG);
+            exportToPNGBtn.addEventListener('click', exportToPng);
         }
 
         // 1. Conecta os botões de Salvar, Salvar Como e Carregar às novas funções
