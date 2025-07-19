@@ -70,6 +70,6 @@ app.post('/export', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor iniciado e ouvindo na porta ${PORT}`);
 });
